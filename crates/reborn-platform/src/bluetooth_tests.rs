@@ -108,6 +108,7 @@ fn daemon_state() -> radiod::Bluetooth {
             volume: Some(64),
             transport: Some("/org/bluez/hci0/dev_12_34_56_78_90_AB/fd0".into()),
             ended: None,
+            battery: Some(80),
         }],
         pcms: vec![radiod::Pcm {
             object: "/org/bluealsa/hci0/dev_12_34_56_78_90_AB/a2dpsrc/sink".into(),
@@ -136,6 +137,7 @@ fn the_daemons_state_becomes_one_status_and_settling_headphones_wait() {
     let mut state = daemon_state();
     let status = status_from(&state);
     assert!(status.devices[0].settling);
+    assert_eq!(status.devices[0].battery, Some(80));
     assert_eq!(
         status.waiting.as_deref(),
         Some(state.devices[0].path.as_str())

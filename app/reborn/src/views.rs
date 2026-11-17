@@ -126,6 +126,7 @@ pub(crate) fn bluetooth_view(s: &bluetooth::Status) -> BluetoothView {
                 codec: s.active_codec(&d.path),
                 connecting: s.waiting.as_deref() == Some(d.path.as_str()),
                 auto_connect: d.auto_connect,
+                battery: d.battery,
             })
             .collect(),
         codec_choices: s.codec_choices(),

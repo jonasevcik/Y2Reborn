@@ -47,6 +47,9 @@ pub struct Device {
     /// Connects by itself when it comes back (Y2Reborn #78).
     #[serde(default)]
     pub auto_connect: bool,
+    /// The headphones' own battery in percent, when they report it to the daemon.
+    #[serde(default)]
+    pub battery: Option<u8>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -593,6 +596,7 @@ fn status_from(state: &radiod::Bluetooth) -> Status {
             transport: d.transport.clone(),
             settling: d.connected && d.audio && d.link != Link::Ready,
             auto_connect: d.auto_connect,
+            battery: d.battery,
         })
         .collect();
     let waiting = state

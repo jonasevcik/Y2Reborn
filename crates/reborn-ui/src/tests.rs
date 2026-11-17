@@ -133,6 +133,7 @@ fn radio_bluetooth() -> BluetoothView {
             codec: Some("SBC".into()),
             connecting: false,
             auto_connect: true,
+            battery: None,
         }],
         ..Default::default()
     }
@@ -2503,6 +2504,22 @@ fn bluetooth_device_states_and_select_actions() {
             operation: "pair".into()
         }
     );
+}
+
+#[test]
+fn a_connected_headset_shows_its_battery_only_when_known() {
+    let mut ui = radios();
+    let mut m = app(Screen::Bluetooth);
+    m.output = AudioOutput::Bluetooth("AA".into());
+    assert_eq!(ui.rows(&m, &m.library.tracks)[1].secondary, "Connected");
+    ui.bluetooth.devices[0].battery = Some(80);
+    assert_eq!(
+        ui.rows(&m, &m.library.tracks)[1].secondary,
+        "Connected · 80%"
+    );
+    // A level out of range is never shown.
+    ui.bluetooth.devices[0].battery = Some(200);
+    assert_eq!(ui.rows(&m, &m.library.tracks)[1].secondary, "Connected");
 }
 
 #[test]

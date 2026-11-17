@@ -187,6 +187,10 @@ pub struct Device {
     pub transport: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ended>,
+    /// The headphones' own battery level in percent, once they report one over their Hands-Free
+    /// link (steps of 10 % for some); none while unknown or disconnected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<u8>,
 }
 
 /// A BlueALSA PCM.

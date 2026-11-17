@@ -246,6 +246,8 @@ pub struct BluetoothDeviceView {
     pub connecting: bool,
     /// Connects by itself when it comes back (Y2Reborn #78: off for a TV that is always on).
     pub auto_connect: bool,
+    /// The headphones' own battery in percent, when they report it.
+    pub battery: Option<u8>,
 }
 
 impl BluetoothDeviceView {
@@ -274,7 +276,10 @@ impl BluetoothDeviceView {
                 "Not paired".into()
             }
         } else if self.usable_audio() {
-            "Connected".into()
+            match self.battery.filter(|p| *p <= 100) {
+                Some(percent) => format!("Connected · {percent}%"),
+                None => "Connected".into(),
+            }
         } else if self.connected {
             "Connecting audio…".into()
         } else if self.connecting {
