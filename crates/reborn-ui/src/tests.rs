@@ -1663,7 +1663,12 @@ fn settings_has_eight_places_and_customize_three_pages_with_pickers() {
     select_key(&mut ui, &mut m, "customize");
     assert_eq!(
         keys(&ui, &m),
-        ["home_menu", "customize:browsing", "customize:buttons"]
+        [
+            "home_menu",
+            "customize:browsing",
+            "customize:buttons",
+            "language"
+        ]
     );
     assert!(hint(&ui, &m).starts_with("Which places Home shows"));
 
@@ -2997,6 +3002,26 @@ fn diagnostic_export_is_distinct_from_private_backup_and_soc_is_labelled() {
     assert!(visible_text(&ui, &m).contains("Estimated Charge"));
     m.platform.battery.estimated = false;
     assert!(!visible_text(&ui, &m).contains("Estimated"));
+}
+
+#[test]
+fn the_language_row_steps_through_the_languages_and_the_page_follows() {
+    let mut ui = radios();
+    let mut m = app(Screen::Customize);
+    assert_eq!(row(&ui, &m, "language").label, "Language");
+    assert_eq!(row(&ui, &m, "language").secondary, "English");
+    assert_eq!(
+        select_key(&mut ui, &mut m, "language"),
+        Effect::SetLanguage(reborn_core::Language::Czech)
+    );
+    m.settings.language = reborn_core::Language::Czech;
+    ui.model_action(&mut m, Action::NavigateDown);
+    assert_eq!(row(&ui, &m, "language").label, "Jazyk");
+    assert_eq!(row(&ui, &m, "language").secondary, "Čeština");
+    assert_eq!(
+        select_key(&mut ui, &mut m, "language"),
+        Effect::SetLanguage(reborn_core::Language::English)
+    );
 }
 
 #[test]

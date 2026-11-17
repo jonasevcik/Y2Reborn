@@ -250,6 +250,7 @@ impl Ui {
                 Effect::None
             }
             k if k.starts_with("set:") => crate::customize::chosen(m, k)?,
+            "language" => Effect::SetLanguage(m.settings.language.next()),
             "wrap_around" => Effect::SetWrapAround(m.settings.wrap_around.next()),
             "home_audiobooks" => Effect::SetAudiobooksOnHome(!m.settings.audiobooks_on_home),
             k if k.starts_with("btn_") => self.button_select(m, k)?,

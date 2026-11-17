@@ -18,6 +18,7 @@ pub use glyph_cache::{
     available as cjk_font_available, set_budget as set_glyph_budget, GLYPHS_PER_FRAME,
 };
 pub mod keyboard;
+pub mod lang;
 mod maskdata;
 mod motion;
 pub mod pages;

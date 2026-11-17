@@ -58,6 +58,13 @@ impl Runtime {
                 Effect::NextTrack | Effect::PreviousTrack if self.model.book_part().is_some() => {
                     return Ok(());
                 }
+                // Beside effect_inner, which is past the code-quality ceiling and may not grow.
+                Effect::SetLanguage(language) => {
+                    self.model.settings.language = language;
+                    self.dirty.mark_render();
+                    self.checkpoint();
+                    return Ok(());
+                }
                 Effect::NextTrack | Effect::PreviousTrack => {
                     let delta = if matches!(e, Effect::NextTrack) {
                         1
@@ -126,7 +133,7 @@ impl Runtime {
             self.lost_peer = None;
         }
         match e {
-            Effect::None => {}
+            Effect::None | Effect::SetLanguage(_) => {}
             Effect::Platform(task) => self.on_platform(task)?,
             Effect::StopPlayback => {
                 self.pause();

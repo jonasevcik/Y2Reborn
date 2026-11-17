@@ -979,6 +979,11 @@ pub struct Settings {
     /// Whether lists continue at the other end (Beta 8.18; Menus by default).
     #[serde(default)]
     pub wrap_around: WrapAround,
+    /// The language of Reborn's own text. English until chosen, so settings
+    /// from before the choice existed, and builds that do not know a
+    /// language, read as English.
+    #[serde(default)]
+    pub language: Language,
     /// What the wheel and its buttons do while the screen is off (Beta 8.18).
     #[serde(default)]
     pub screen_off_buttons: ScreenOffButtons,
@@ -1256,6 +1261,30 @@ impl WrapAround {
         }
     }
 }
+/// The language of Reborn's own text (menus, settings, messages). Each is
+/// named in itself, so a person who cannot read the current one can find theirs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    #[default]
+    English,
+    Czech,
+}
+impl Language {
+    pub const ALL: [Self; 2] = [Self::English, Self::Czech];
+    /// The language's name in that language.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::Czech => "Čeština",
+        }
+    }
+    /// The next choice, as one press on its row steps through them.
+    pub fn next(self) -> Self {
+        let at = Self::ALL.iter().position(|l| *l == self).unwrap_or(0);
+        Self::ALL[(at + 1) % Self::ALL.len()]
+    }
+}
 /// The vibration motor's tick on the wheel and buttons (#28). Off until
 /// chosen: an update does not start buzzing on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1360,6 +1389,7 @@ impl Default for Settings {
             now_playing_wheel: NowPlayingWheel::Volume,
             artists_list: ArtistsList::All,
             wrap_around: WrapAround::Menus,
+            language: Language::English,
             screen_off_buttons: ScreenOffButtons::Buttons,
             buttons: Default::default(),
             haptics: Haptics::Off,
@@ -1691,6 +1721,7 @@ pub enum Effect {
     SetButtons(Box<buttons::ButtonSettings>),
     SetArtistsList(ArtistsList),
     SetWrapAround(WrapAround),
+    SetLanguage(Language),
     SetHaptics(Haptics),
     SetWheelClick(WheelClick),
     SetSpeaker(bool),
@@ -2540,6 +2571,29 @@ mod tests {
         assert!(!s.zone_auto());
         s.time_zone_auto = Some(true);
         assert!(s.zone_auto());
+    }
+
+    #[test]
+    fn language_defaults_to_english_steps_through_all_and_survives_old_settings() {
+        assert_eq!(Settings::default().language, Language::English);
+        let mut json = serde_json::to_value(Settings::default()).unwrap();
+        if let Some(map) = json.as_object_mut() {
+            map.remove("language");
+        }
+        let old: Settings = serde_json::from_value(json).unwrap();
+        assert_eq!(old.language, Language::English);
+        let mut language = Language::English;
+        for _ in 0..Language::ALL.len() {
+            language = language.next();
+        }
+        assert_eq!(language, Language::English);
+        assert_eq!(Language::English.next(), Language::Czech);
+        let czech = Settings {
+            language: Language::Czech,
+            ..Settings::default()
+        };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&czech).unwrap()).unwrap();
+        assert_eq!(back.language, Language::Czech);
     }
 }
 

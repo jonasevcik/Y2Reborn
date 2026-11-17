@@ -3,6 +3,7 @@ use crate::*;
 
 impl Ui {
     pub fn draw(&self, m: &AppModel, tracks: &[Track], has_art: bool) -> Vec<Quad> {
+        lang::set(m.settings.language);
         self.motion.begin_frame();
         glyph_cache::begin_frame();
         let frame = screens::draw(self, m, tracks, has_art);

@@ -6,6 +6,7 @@ impl Ui {
     /// Restore it before the caller executes effects; never clone every Track
     /// merely to satisfy disjoint borrowing of navigation and the library.
     pub fn model_action(&mut self, model: &mut AppModel, action: Action) -> Effect {
+        lang::set(model.settings.language);
         let tracks = std::mem::take(&mut model.library.tracks);
         let effect = self.action(model, &tracks, action);
         model.library.tracks = tracks;
@@ -378,6 +379,7 @@ impl Ui {
     /// work that shows a spinner and the clock's minute turning over.
     /// Returns whether the screen needs redrawing.
     pub fn observe(&mut self, m: &AppModel) -> bool {
+        lang::set(m.settings.language);
         let before = (
             self.usb_state,
             self.alert.clone(),

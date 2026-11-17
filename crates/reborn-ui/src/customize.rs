@@ -5,6 +5,7 @@
 //! ("choose:<setting>"); on/off is a switch; two named choices step on Select. The line under each
 //! page says what the setting in focus does.
 use crate::buttons_page::{parse, ButtonPage};
+use crate::lang::tr;
 use crate::pages::{home_summary, row, Page};
 use crate::{RowKind, Ui};
 use reborn_core::{
@@ -81,6 +82,8 @@ pub(crate) fn page(ui: &Ui, m: &AppModel) -> Page {
                 m.settings.buttons.active_name(),
             )
             .with_kind(RowKind::Chevron),
+            // One press steps to the next language; each is named in itself.
+            row(tr("Language"), "language", m.settings.language.label()),
         ],
     };
     let mut page = Page::rows(rows);
@@ -110,6 +113,7 @@ fn hint(key: &str) -> Option<&'static str> {
         "home_menu" => "Which places Home shows, and in which order.",
         "customize:browsing" => "How albums and artists are listed, and how lists end.",
         "customize:buttons" => "What each button does, in layouts you can go back from.",
+        "language" => "The language of menus and messages. Music keeps its own names.",
         "album_view" => "Albums and audiobooks as covers sliding past, or as a list.",
         "album_order" => "Albums A to Z by title, or each artist's albums together.",
         "choose:artist_albums" => {
