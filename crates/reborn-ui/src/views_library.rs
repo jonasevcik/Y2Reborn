@@ -437,13 +437,31 @@ pub(crate) fn album_line(total: crate::AlbumTotal) -> String {
 
 // ------------------------------------------------------------ album / artist
 
-pub(crate) fn pill_row(c: &mut Canvas, x: f32, y: f32, labels: &[(&str, bool)], interactive: bool) {
+pub(crate) fn pill_row(
+    c: &mut Canvas,
+    x: f32,
+    y: f32,
+    buttons: &[(Option<Icon>, &str, bool)],
+    interactive: bool,
+) {
     let mut x = x;
-    for (label, focused) in labels {
-        let w = text::width(Face::S13, label) + 44.;
-        components::button(c, x, y, w, 34., label, Face::S13, interactive && *focused);
-        x += w + 12.;
+    for (icon, label, focused) in buttons {
+        components::page_button(c, x, y, *icon, label, interactive && *focused);
+        x += components::page_button_width(label, *icon) + 12.;
     }
+}
+
+/// A page's Play and Shuffle buttons (an album's say Play All, Shuffle All),
+/// the one at `focus` lit.
+pub(crate) fn play_shuffle<'a>(
+    play: &'a str,
+    shuffle: &'a str,
+    focus: usize,
+) -> [(Option<Icon>, &'a str, bool); 2] {
+    [
+        (Some(Icon::Play), play, focus == 0),
+        (Some(Icon::Shuffle), shuffle, focus == 1),
+    ]
 }
 
 fn album_page(
@@ -571,7 +589,7 @@ fn album_page(
         c,
         144.,
         134.,
-        &[("Play All", focus == 0), ("Shuffle All", focus == 1)],
+        &play_shuffle("Play All", "Shuffle All", focus),
         interactive,
     );
     if let Some(t) = opening {
@@ -658,7 +676,13 @@ fn artist_page(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interact
         );
         c.text_mid(108., 96., 350., &sub, Face::R13, color::MUTED);
     }
-    pill_row(c, 108., 112., &[("Play All", focus == 0)], interactive);
+    pill_row(
+        c,
+        108.,
+        112.,
+        &[(Some(Icon::Play), "Play All", focus == 0)],
+        interactive,
+    );
     components::section_label(c, 28., 172., "Albums");
     // Three covers at a time, the focused one lifted.
     let albums = all.len().saturating_sub(1);

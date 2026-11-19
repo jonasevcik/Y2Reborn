@@ -274,6 +274,52 @@ pub fn button(
 /// A focused button's fill.
 pub const BUTTON_FOCUS: u32 = 0xF2F3F5FF;
 
+/// A button's icon, left of its label, and the gap between them.
+const BUTTON_ICON: f32 = 18.;
+const BUTTON_ICON_GAP: f32 = 8.;
+
+/// A page button's height and type (the Play and Shuffle row under a header).
+pub const PAGE_BUTTON_H: f32 = 34.;
+pub const PAGE_BUTTON_FACE: Face = Face::S13;
+
+/// The width of `page_button`: the label, the icon when there is one, and the
+/// side padding.
+pub fn page_button_width(label: &str, icon: Option<Icon>) -> f32 {
+    let icon_w = if icon.is_some() {
+        BUTTON_ICON + BUTTON_ICON_GAP
+    } else {
+        0.
+    };
+    text::width(PAGE_BUTTON_FACE, label) + icon_w + 44.
+}
+
+/// A page's Play, Shuffle or Continue button: `button` with an icon left of
+/// the label, the two centred as one. Same pill and ink as every button.
+pub fn page_button(c: &mut Canvas, x: f32, y: f32, icon: Option<Icon>, label: &str, focused: bool) {
+    let (w, h, face) = (
+        page_button_width(label, icon),
+        PAGE_BUTTON_H,
+        PAGE_BUTTON_FACE,
+    );
+    let Some(icon) = icon else {
+        return button(c, x, y, w, h, label, face, focused);
+    };
+    let at = c.draw.len();
+    let (fill, ink) = if focused {
+        (BUTTON_FOCUS, color::INK)
+    } else {
+        (color::GLASS, color::TEXT)
+    };
+    c.rrect(x, y, w, h, h / 2., fill);
+    let left = x + (w - (BUTTON_ICON + BUTTON_ICON_GAP + text::width(face, label))) / 2.;
+    c.icon(icon, left + BUTTON_ICON / 2., y + h / 2., BUTTON_ICON, ink);
+    let text_x = left + BUTTON_ICON + BUTTON_ICON_GAP;
+    c.text(text_x, y + h / 2. + face.mid_offset(), label, face, ink);
+    if focused {
+        c.mark_focus(at);
+    }
+}
+
 /// A thin outlined tag such as `LOSSLESS 24/96`.
 pub fn tag(c: &mut Canvas, x: f32, cy: f32, label: &str, tint: u32) -> f32 {
     let w = text::width_tracked(Face::S10, label, 0.5) + 20.;

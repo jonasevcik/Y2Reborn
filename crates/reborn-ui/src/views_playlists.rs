@@ -9,7 +9,7 @@ use crate::{
     screens::screen_title,
     text::{self, Face},
     theme::{color, WIDTH},
-    views_library::pill_row,
+    views_library::{pill_row, play_shuffle},
     Ui,
 };
 use reborn_core::{AppModel, Screen, Track};
@@ -288,7 +288,7 @@ fn page(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interactive: bo
                 c,
                 144.,
                 134.,
-                &[("Play", focus == 0), ("Shuffle", focus == 1)],
+                &play_shuffle("Play", "Shuffle", focus),
                 interactive && !moving,
             );
         }

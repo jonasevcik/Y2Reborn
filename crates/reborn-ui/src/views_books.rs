@@ -1,7 +1,7 @@
 //! Audiobooks: the list of books, a book's page with its chapters, and what
 //! Now Playing shows while a book plays (chapter, book, author, time left).
 use crate::{
-    canvas::Canvas,
+    canvas::{Canvas, Icon},
     components::{self, cover_rounded},
     text::{self, Face},
     theme::{color, WIDTH},
@@ -320,10 +320,14 @@ pub(crate) fn book_page(
             line += &format!(" · {} left", length(total - done));
         }
         c.text_mid(144., 119., 310., &line, Face::R11, color::MUTED);
-        let labels: Vec<(&str, bool)> = rows[..pills]
+        // Continue and Play start the book; Start Over has no icon.
+        let labels: Vec<(Option<Icon>, &str, bool)> = rows[..pills]
             .iter()
             .enumerate()
-            .map(|(i, r)| (r.label.as_str(), focus == i))
+            .map(|(i, r)| {
+                let icon = (r.key == "book_resume").then_some(Icon::Play);
+                (icon, r.label.as_str(), focus == i)
+            })
             .collect();
         pill_row(c, 144., 134., &labels, interactive);
     }

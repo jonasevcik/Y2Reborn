@@ -8095,3 +8095,48 @@ fn films_have_their_own_place_and_never_stand_among_the_songs() {
     songs.library.tracks = tracks.clone();
     assert!(!ui.rows(&songs, &tracks).iter().any(|r| r.key == "track:0"));
 }
+
+#[test]
+fn the_play_and_shuffle_buttons_of_a_page_carry_the_transport_icons() {
+    use reborn_core::books::{books, Shelf};
+    use reborn_graphics::Tex;
+    let ui = radios();
+    let count = |quads: &[reborn_graphics::Quad], src: [u16; 4]| {
+        quads
+            .iter()
+            .filter(|q| q.tex == Tex::Mask && q.src == src)
+            .count()
+    };
+    // An album page: Play All and Shuffle All, one icon each, and no other
+    // play or shuffle glyph on the page.
+    let mut m = app(Screen::Album);
+    let t = &m.library.tracks[0];
+    m.navigation.filter = format!("album:{}\u{1f}{}", t.album_artist, t.album);
+    let tracks = m.library.tracks.clone();
+    let page = ui.draw(&m, &tracks, true);
+    let text = drawn_text(&page);
+    assert!(
+        text.contains("Play All") && text.contains("Shuffle All"),
+        "{text}"
+    );
+    assert_eq!(count(&page, maskdata::PLAY), 1, "Play All");
+    assert_eq!(count(&page, maskdata::SHUFFLE), 1, "Shuffle All");
+    // A book page: Continue plays, Start Over has no icon.
+    let mut m = app(Screen::Audiobooks);
+    with_book(&mut m);
+    let tracks = m.library.tracks.clone();
+    let mut ui = radios();
+    let book = ui.rows(&m, &tracks)[0].key.clone();
+    select_key(&mut ui, &mut m, &book);
+    let mut shelf = Shelf::default();
+    shelf.record(&books(&tracks).remove(0), &tracks, 1, 30_000, 1.0, 1);
+    m.library.shelf = shelf;
+    let page = ui.draw(&m, &tracks, true);
+    let text = drawn_text(&page);
+    assert!(
+        text.contains("Continue") && text.contains("Start Over"),
+        "{text}"
+    );
+    assert_eq!(count(&page, maskdata::PLAY), 1, "Continue only");
+    assert_eq!(count(&page, maskdata::SHUFFLE), 0);
+}
