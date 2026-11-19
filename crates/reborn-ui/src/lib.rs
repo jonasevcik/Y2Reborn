@@ -39,6 +39,7 @@ mod search;
 mod search_flow;
 mod selects;
 pub mod skin;
+mod storage_use;
 mod text;
 pub mod theme;
 mod time_zone;
@@ -55,6 +56,7 @@ mod views_quick;
 mod views_radio;
 mod views_search;
 mod views_settings;
+mod views_storage;
 mod views_system;
 pub mod views_videos;
 
@@ -89,6 +91,11 @@ pub fn focus_target_count(quads: &[Quad]) -> usize {
 
 /// Library size stamp and the artist, album and song counts for it.
 type CountsCache = Option<((usize, usize), reborn_core::ArtistsList, [usize; 4])>;
+/// Library identity and its files by kind per source (Storage).
+type KindsCache = Option<(
+    (usize, usize),
+    std::collections::HashMap<String, storage_use::Kinds>,
+)>;
 /// Library identity, album filter key and its detail line.
 type DetailCache = Option<((usize, usize), String, String)>;
 /// A group menu's song count: (library, group key, songs).
@@ -518,6 +525,7 @@ pub struct Ui {
     /// Station logos the last frame wanted: thumbnail key and logo address.
     wanted_logos: RefCell<Vec<(u64, String)>>,
     counts: RefCell<CountsCache>,
+    storage_use: RefCell<KindsCache>,
     /// A dialog the player raises by itself (Bluetooth failure, low battery).
     pub alert: Option<Alert>,
     alert_focus: usize,
