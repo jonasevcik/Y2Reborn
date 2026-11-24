@@ -103,21 +103,30 @@ impl Ui {
     }
 
     /// Motion that wants the panel's full frame rate: Cover Flow's glide and
-    /// the cover's flight, and (Beta 7.2) every eased value on its way, a
-    /// screen sliding in and the playing wave. Spinners stay at the calm rate.
+    /// the cover's flight, and (Beta 7.2) every eased value on its way and a
+    /// screen sliding in. Spinners and the playing wave stay at the calm rate
+    /// (the wave at the full rate cost about three times the CPU of a static page).
     pub fn gliding(&self) -> bool {
         // A film's pictures come at their own times: the loop looks for one at the panel's
         // rate, but only a new picture is a reason to draw (`in_motion` leaves films out).
-        self.film_running || self.in_motion()
+        self.film_running || self.motion_on(false)
     }
 
     /// Something eased or gliding is on its way and needs the next frame drawn.
     fn in_motion(&self) -> bool {
+        self.motion_on(true)
+    }
+
+    /// Motion on its way; `wave` counts the playing wave, which goes on by itself.
+    fn motion_on(&self, wave: bool) -> bool {
         self.flow.borrow().moving()
             || self.transition_progress().is_some()
             || (self.ui_motion
-                && (self.motion.moving()
-                    || self.slide.borrow().is_some()
+                && ((if wave {
+                    self.motion.moving()
+                } else {
+                    self.motion.settling()
+                }) || self.slide.borrow().is_some()
                     || self.folding.borrow().is_some()
                     || self.download_shown))
     }

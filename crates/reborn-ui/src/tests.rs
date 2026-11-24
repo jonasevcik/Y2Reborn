@@ -5037,10 +5037,13 @@ fn motion_waves_while_playing_slides_screens_and_glides_focus() {
     m.position_ms = 60_000;
     let frame = ui.draw(&m, &m.library.tracks, false);
     assert!(warped(&frame) > 20, "the played part waves");
-    assert!(
-        ui.gliding(),
-        "the wave keeps the full frame rate while playing"
-    );
+    // The wave keeps drawing while playing, at the calm rate (not the panel's full one).
+    for _ in 0..60 {
+        ui.draw(&m, &m.library.tracks, false);
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    assert!(ui.animating(), "the wave keeps drawing while playing");
+    assert!(!ui.gliding(), "…at the calm frame rate, not the full one");
     // …without the Interactive CPU lease: its frames fit the lowest clock.
     ui.draw(&m, &m.library.tracks, false);
     assert!(!ui.responding(), "the wave alone takes no CPU boost");
