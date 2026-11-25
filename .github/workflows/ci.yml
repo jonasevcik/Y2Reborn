@@ -50,8 +50,8 @@ jobs:
           path: Y2Reborn
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.THIS_IS_REBORN == 'true' && 'SchulzCode/Y2Linux' || github.repository }}
-          ref: ${{ env.THIS_IS_REBORN == 'true' && 'main' || github.ref }}
+          repository: ${{ env.THIS_IS_REBORN == 'true' && 'jonasevcik/Y2Linux' || github.repository }}
+          ref: ${{ env.THIS_IS_REBORN == 'true' && 'portable-report-fixtures' || github.ref }}
           path: Y2Linux
 
       - name: Packages
@@ -150,8 +150,8 @@ jobs:
       # The whole history: record-compat.py compares with the last `release:` commit.
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.THIS_IS_REBORN == 'true' && 'SchulzCode/Y2Linux' || github.repository }}
-          ref: ${{ env.THIS_IS_REBORN == 'true' && 'main' || github.ref }}
+          repository: ${{ env.THIS_IS_REBORN == 'true' && 'jonasevcik/Y2Linux' || github.repository }}
+          ref: ${{ env.THIS_IS_REBORN == 'true' && 'portable-report-fixtures' || github.ref }}
           path: Y2Linux
           fetch-depth: 0
 
