@@ -158,7 +158,9 @@ jobs:
       - name: Packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends build-essential pkg-config python3 libdbus-1-dev
+          # No FFmpeg here; libblkid and libmount are linked by Reborn's platform crate (the contract test).
+          sudo apt-get install -y -qq --no-install-recommends build-essential pkg-config python3 libdbus-1-dev \
+            libblkid-dev libmount-dev uuid-dev
       - name: Rust toolchain
         working-directory: Y2Linux/platform
         run: rustup toolchain install   # 1.99.0 with the armv7 target, rustfmt and clippy
