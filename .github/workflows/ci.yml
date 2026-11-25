@@ -184,6 +184,11 @@ jobs:
       - name: Platform gate
         working-directory: Y2Linux
         run: tools/development/platform-gate.sh
+      # The gate prints only "GATE FAIL Reborn contract" when that last stage fails; this shows why.
+      - name: Reborn contract test, in full
+        if: failure()
+        working-directory: Y2Reborn
+        run: cargo test --offline -p reborn-platform reborn_reads_the_platform
       # The gate runs `cargo fmt` (it rewrites); a difference means the change was not formatted.
       - name: Formatted
         working-directory: Y2Linux
