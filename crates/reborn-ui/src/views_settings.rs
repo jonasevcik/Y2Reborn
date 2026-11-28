@@ -953,22 +953,28 @@ fn named_steps(c: &mut Canvas, names: [&str; 3], current: usize, accent: u32) {
 fn download_progress(
     c: &mut Canvas,
     ui: &Ui,
-    live: Option<reborn_core::platform::DownloadLive>,
+    live: Option<&reborn_core::platform::DownloadLive>,
     accent: u32,
     cancel: bool,
 ) {
     let verifying = live.is_some_and(|l| l.verifying);
-    // Step 3 is the restart to install (`views_system::installing`).
-    let title = if verifying {
-        "Checking the Update"
+    // Step 3 is the restart to install (`views_system::installing`). The title names the release
+    // (Y2Reborn #192) when it fits.
+    let (named, generic) = if verifying {
+        ("Checking", "Checking the Update")
     } else {
-        "Downloading Update"
+        ("Downloading", "Downloading Update")
     };
+    let title = live
+        .and_then(|l| l.release.as_deref())
+        .map(|release| format!("{named} {}", crate::pages::short_version(release)))
+        .filter(|title| text::width(Face::S20, title) <= WIDTH - 40.)
+        .unwrap_or_else(|| generic.to_owned());
     steps(c, usize::from(verifying), accent);
     c.text_center(
         240.,
         128. + Face::S20.mid_offset(),
-        title,
+        &title,
         Face::S20,
         color::TEXT,
     );
@@ -1196,7 +1202,7 @@ pub(crate) fn update_overlay(c: &mut Canvas, ui: &Ui, m: &AppModel) {
     download_progress(
         c,
         ui,
-        m.platform.download,
+        m.platform.download.as_ref(),
         ui.accent(),
         crate::update_cancellable(m),
     );
@@ -1238,9 +1244,11 @@ fn update(c: &mut Canvas, ui: &Ui, m: &AppModel, page: &Page, focus: usize, inte
         _ => (color::MUTED, Icon::Info),
     };
     let downloading = *phase == UpdatePhase::Downloading
-        || m.platform.busy == Some(reborn_core::PlatformTask::UpdateStage);
+        || m.platform
+            .busy
+            .is_some_and(reborn_core::PlatformTask::is_update_stage);
     if downloading {
-        download_progress(c, ui, m.platform.download, accent, false);
+        download_progress(c, ui, m.platform.download.as_ref(), accent, false);
         return;
     }
     let (title, body) = page

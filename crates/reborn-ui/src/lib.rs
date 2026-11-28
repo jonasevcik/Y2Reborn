@@ -739,8 +739,8 @@ pub(crate) fn update_charge_ok(m: &AppModel) -> bool {
 
 /// The running download can still be stopped: nothing changed on the player.
 pub(crate) fn update_cancellable(m: &AppModel) -> bool {
-    m.platform.busy == Some(PlatformTask::UpdateStage)
-        && !m.platform.download.is_some_and(|l| l.verifying)
+    m.platform.busy.is_some_and(PlatformTask::is_update_stage)
+        && !m.platform.download.as_ref().is_some_and(|l| l.verifying)
 }
 
 fn platform_task(name: &str) -> PlatformTask {
@@ -748,7 +748,7 @@ fn platform_task(name: &str) -> PlatformTask {
     match name {
         "health" => Health,
         "update_check" => UpdateCheck,
-        "update_stage" => UpdateStage,
+        "update_stage" => UpdateStage(None),
         "update_apply" => UpdateApply,
         "update_cancel" => UpdateCancel,
         "update_rollback" => UpdateRollback,

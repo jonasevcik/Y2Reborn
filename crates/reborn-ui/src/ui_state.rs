@@ -444,7 +444,9 @@ impl Ui {
         }
         let downloading = m.platform.snapshot.update.phase
             == reborn_core::platform::UpdatePhase::Downloading
-            || m.platform.busy == Some(reborn_core::PlatformTask::UpdateStage);
+            || m.platform
+                .busy
+                .is_some_and(reborn_core::PlatformTask::is_update_stage);
         self.spinning = m.library.scanning || downloading || self.bt_busy.is_some();
         // Before Beta 7.6 the download drew at the spinners' calm rate
         // (≤ 29 fps): its sweep stepped ≈8 px a frame.

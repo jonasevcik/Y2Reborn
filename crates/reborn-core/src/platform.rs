@@ -379,10 +379,12 @@ pub enum RadioFirmware {
     Failed,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DownloadLive {
     /// The download is complete and the platform checks the package.
     pub verifying: bool,
+    /// The release downloading, as its signed manifest names it.
+    pub release: Option<String>,
     pub bytes_done: u64,
     pub bytes_total: u64,
     /// Over the last few seconds; None until there is enough to measure.
@@ -438,6 +440,10 @@ pub struct UpdateState {
     pub can_rollback: bool,
     /// Size of the release the last check found, in bytes.
     pub download_bytes: Option<u64>,
+    /// The sequence of the release on offer: Update Now downloads only that one (Y2Reborn #192).
+    pub offered_sequence: Option<i64>,
+    /// The version of the release downloaded and waiting to be installed.
+    pub queued_version: Option<String>,
     /// System space a refused download needed, after the platform's cleanup.
     pub space_needed_mb: Option<u64>,
 }

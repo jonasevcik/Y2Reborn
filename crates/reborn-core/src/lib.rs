@@ -769,7 +769,9 @@ pub enum PlatformTask {
     Refresh,
     Health,
     UpdateCheck,
-    UpdateStage,
+    /// Download and queue the release on offer; with its sequence, only that release (Y2Reborn
+    /// #192): the platform downloads nothing when the channel moved on since the check.
+    UpdateStage(Option<i64>),
     UpdateApply,
     UpdateCancel,
     UpdateRollback,
@@ -804,6 +806,13 @@ pub enum PlatformTask {
     /// Set the system clock to this instant (unix seconds), the owner's own
     /// date and time (#53); network time replaces it when Wi-Fi connects.
     SetClock(i64),
+}
+
+impl PlatformTask {
+    /// The download of an update, whichever release it is pinned to.
+    pub fn is_update_stage(self) -> bool {
+        matches!(self, PlatformTask::UpdateStage(_))
+    }
 }
 
 /// Presented platform state. Owned and filled by the application from the

@@ -214,15 +214,21 @@ fn execute(task: PlatformTask) -> Reply {
                     .map_err(|e| update_check_error(&e)),
             )
         }
-        UpdateStage => {
+        UpdateStage(sequence) => {
             // A Cancel left over from an earlier download must not stop this one.
             ABORT_DOWNLOAD.store(false, Ordering::SeqCst);
-            run(
-                PROGRAM,
-                &["update", "stage"],
-                Duration::from_secs(950),
-                true,
-            )
+            // Only the release the page offered: another one is offered again, not downloaded.
+            let sequence = sequence.map(|n| n.to_string());
+            let mut args = vec!["update", "stage"];
+            if let Some(n) = &sequence {
+                args.extend(["--sequence", n]);
+            }
+            return Reply::Operation(
+                task,
+                run(PROGRAM, &args, Duration::from_secs(950), true)
+                    .map(|v| operation(&v))
+                    .map_err(|e| update_stage_error(&e)),
+            );
         }
         UpdateApply => call(&["update", "apply"], 30),
         UpdateCancel => call(&["update", "cancel"], 30),
@@ -495,6 +501,23 @@ pub fn update_check_error(error: &str) -> String {
         "Couldn't reach the update server. Try again in a moment."
     }
     .into()
+}
+
+/// What a Cancel pressed during the download answers.
+pub const UPDATE_CANCELLED: &str = "Update cancelled. Nothing was changed.";
+/// The channel published another release since the check the page showed (Y2Reborn #192).
+pub const UPDATE_RELEASE_CHANGED: &str = "A newer version came out. Nothing was downloaded.";
+
+/// A failed `update stage` in the owner's words: a Cancel and a release that changed since the
+/// check are not failures (both used to read "Couldn't complete that").
+pub fn update_stage_error(error: &str) -> String {
+    if error.contains("download_cancelled") {
+        UPDATE_CANCELLED.into()
+    } else if error.contains("update_release_changed") {
+        UPDATE_RELEASE_CHANGED.into()
+    } else {
+        friendly_error(error)
+    }
 }
 
 pub fn friendly_error(error: &str) -> String {
@@ -792,6 +815,7 @@ pub fn parse_download(record: &Value, check: Option<&str>) -> Option<DownloadLiv
     let unsigned = |n: Option<i64>| n.and_then(|n| u64::try_from(n).ok());
     Some(DownloadLive {
         verifying,
+        release: record.release_version.as_str().map(str::to_owned),
         bytes_done: unsigned(Some(record.bytes_done))?,
         bytes_total: unsigned(Some(record.bytes_total))?,
         speed_bytes_per_s: unsigned(record.speed_bytes_per_s).filter(|&s| s > 0),
@@ -859,6 +883,14 @@ pub fn update(status: &Value, ota_enabled: bool) -> UpdateState {
             && u.journal.rollback_allowed == Some(true)
             && matches!(state, "Acknowledged" | "PendingHealth"),
         download_bytes: bytes(download.and_then(|d| d.download_bytes)),
+        offered_sequence: download
+            .filter(|d| d.is("Checked"))
+            .and_then(|d| d.sequence.as_ref()?.as_i64()),
+        queued_version: u
+            .journal
+            .release_version
+            .clone()
+            .filter(|_| state == "Queued"),
         space_needed_mb: bytes(download.and_then(|d| d.needed_bytes))
             .map(|b| b.div_ceil(1_000_000)),
         phase,
@@ -1820,6 +1852,13 @@ mod tests {
         let u = update(&v, true);
         assert_eq!(u.phase, UpdatePhase::ReadyToInstall);
         assert!(u.can_install && u.can_cancel && !u.can_check);
+        assert_eq!(u.queued_version, None);
+        // The queued package's version, from the core's journal (Y2Reborn #192).
+        v["system"]["update"] = json!({"state":"Queued","release_version":"1.0.0-beta.9.3.43"});
+        assert_eq!(
+            update(&v, true).queued_version.as_deref(),
+            Some("1.0.0-beta.9.3.43")
+        );
         v["system"]["update"] =
             json!({"state":"Idle","download":{"state":"Checked","release_version":"1.0"}});
         assert_eq!(update(&v, true).phase, UpdatePhase::UpToDate);
@@ -1861,8 +1900,13 @@ mod tests {
             }
         );
         assert_eq!(u.download_bytes, Some(57_000_000));
+        assert_eq!(u.offered_sequence, None);
+        // Update Now pins the release on offer by its sequence (Y2Reborn #192).
+        v["system"]["update"]["download"]["sequence"] = json!(19900);
+        assert_eq!(update(&v, true).offered_sequence, Some(19900));
         v["system"]["update"] = json!({"state":"Idle","download":{"state":"Staging"}});
         assert_eq!(update(&v, true).phase, UpdatePhase::Downloading);
+        assert_eq!(update(&v, true).offered_sequence, None);
         v["system"]["update"] = json!({"state":"RollbackPending"});
         assert_eq!(update(&v, true).phase, UpdatePhase::Restoring);
         v["system"]["update"] = json!({"state":"PendingHealth"});
@@ -1930,6 +1974,14 @@ mod tests {
             (live.verifying, live.speed_bytes_per_s, live.seconds_left),
             (false, Some(3_300_000), Some(12))
         );
+        assert_eq!(live.release, None);
+        let live = parse_download(
+            &json!({"schema":1,"phase":"download","release_version":"1.0.0-beta.9.3.43",
+                "bytes_done":25,"bytes_total":100}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(live.release.as_deref(), Some("1.0.0-beta.9.3.43"));
         assert!((live.fraction() - 0.25).abs() < 1e-6);
         let checking = parse_download(
             &json!({"schema":1,"phase":"verify","bytes_done":100,"bytes_total":100,
@@ -2116,6 +2168,20 @@ mod tests {
         assert_eq!(result.unwrap_err(), "download_cancelled");
         assert!(started.elapsed() < Duration::from_secs(4));
         assert!(!ABORT_DOWNLOAD.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_cancel_and_a_changed_release_are_named_not_failures() {
+        // Both read "Couldn't complete that" before: the runtime never saw the platform's code.
+        assert_eq!(update_stage_error("download_cancelled"), UPDATE_CANCELLED);
+        assert_eq!(
+            update_stage_error("update_release_changed"),
+            UPDATE_RELEASE_CHANGED
+        );
+        assert_eq!(
+            update_stage_error("update_data_space_reserve"),
+            friendly_error("update_data_space_reserve")
+        );
     }
 
     #[test]

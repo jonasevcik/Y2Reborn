@@ -90,7 +90,7 @@ impl Runtime {
         }
         if matches!(
             task,
-            reborn_core::PlatformTask::UpdateStage | reborn_core::PlatformTask::UpdateApply
+            reborn_core::PlatformTask::UpdateStage(_) | reborn_core::PlatformTask::UpdateApply
         ) {
             self.log.emit(
                 Level::Info,

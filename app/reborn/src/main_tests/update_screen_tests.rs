@@ -13,9 +13,14 @@ fn the_update_screen_never_stands_without_an_update_task() {
         true,
         false,
         Some(Refresh),
-        Some(UpdateStage)
+        Some(UpdateStage(None))
     ));
-    assert!(!update_screen_waits(true, false, Some(UpdateStage), None));
+    assert!(!update_screen_waits(
+        true,
+        false,
+        Some(UpdateStage(None)),
+        None
+    ));
     assert!(!update_screen_waits(true, false, Some(UpdateApply), None));
     assert!(!update_screen_waits(true, true, None, None));
     assert!(!update_screen_waits(false, false, None, None));

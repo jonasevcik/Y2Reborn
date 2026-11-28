@@ -1323,10 +1323,10 @@ fn storage(m: &AppModel) -> Page {
 pub fn update_summary(m: &AppModel) -> String {
     let s = &m.platform.snapshot;
     // The live record also covers a download Reborn found running after a restart.
-    if m.platform.busy == Some(PlatformTask::UpdateStage)
+    if m.platform.busy.is_some_and(PlatformTask::is_update_stage)
         || s.update.phase == UpdatePhase::Downloading
     {
-        return match m.platform.download {
+        return match &m.platform.download {
             Some(l) if l.verifying => format!("Checking · {}%", (l.fraction() * 100.) as u32),
             Some(l) => format!("Downloading · {}%", (l.fraction() * 100.) as u32),
             None => "Downloading…".into(),
@@ -1597,8 +1597,8 @@ fn update_page(ui: &Ui, m: &AppModel) -> Page {
     if busy == Some(PlatformTask::UpdateCheck) {
         return Page::hero("Checking for Updates…", "This takes a moment.");
     }
-    if busy == Some(PlatformTask::UpdateStage) || u.phase == UpdatePhase::Downloading {
-        return match m.platform.download {
+    if busy.is_some_and(PlatformTask::is_update_stage) || u.phase == UpdatePhase::Downloading {
+        return match &m.platform.download {
             Some(l) if l.verifying => Page::hero(
                 format!("Checking the Update… {}%", (l.fraction() * 100.) as u32),
                 "Making sure the download is complete and genuine.",
@@ -1665,7 +1665,14 @@ fn update_page(ui: &Ui, m: &AppModel) -> Page {
         }]),
         UpdatePhase::ReadyToInstall => Page::hero(
             "Ready to Install",
-            "The player restarts to install. It takes about a minute.",
+            match &u.queued_version {
+                Some(version) => format!(
+                    "Version {} is downloaded. The player restarts to install it. \
+                     It takes about a minute.",
+                    short_version(version)
+                ),
+                None => "The player restarts to install. It takes about a minute.".into(),
+            },
         )
         .with_rows(vec![
             disabled(

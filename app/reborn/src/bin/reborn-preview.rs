@@ -1492,7 +1492,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     case!("34-update-downloading", at(Screen::Update, ""), |_, m| {
         m.platform.snapshot.update.phase = reborn_core::platform::UpdatePhase::Downloading;
-        m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+        m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
     });
     case!("35-wifi-needs-firmware", at(Screen::Wifi, ""), |_, m| {
         m.platform.snapshot.radio_firmware = reborn_core::platform::RadioFirmware::Missing;
@@ -1509,9 +1509,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         at(Screen::Update, ""),
         |ui, m| {
             ui.update_run = true;
-            m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+            m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
             m.platform.download = Some(reborn_core::platform::DownloadLive {
                 verifying: false,
+                release: Some("1.0.0-beta.9.3.43".into()),
                 bytes_done: 23_400_000,
                 bytes_total: 58_700_000,
                 speed_bytes_per_s: Some(3_250_000),
@@ -1525,15 +1526,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         at(Screen::Update, ""),
         |ui, m| {
             ui.update_run = true;
-            m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+            m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
             m.platform.download = Some(reborn_core::platform::DownloadLive {
                 verifying: true,
+                release: Some("1.0.0-beta.9.3.43".into()),
                 bytes_done: 58_700_000,
                 bytes_total: 58_700_000,
                 speed_bytes_per_s: None,
                 seconds_left: None,
                 check_percent: Some(63),
             });
+        }
+    );
+    // Y2Reborn #192: the page names the version that is downloaded.
+    case!(
+        "34e-update-ready",
+        at(Screen::Update, "software"),
+        |_, m| {
+            let u = &mut m.platform.snapshot.update;
+            u.phase = reborn_core::platform::UpdatePhase::ReadyToInstall;
+            u.queued_version = Some("1.0.0-beta.9.3.43".into());
+            u.can_install = true;
+            u.can_cancel = true;
         }
     );
     case!("34d-update-installing", at(Screen::Update, ""), |ui, _| {

@@ -1385,7 +1385,7 @@ fn the_quick_menu_switches_radios_sets_brightness_and_turns_off() {
     assert_eq!(m.navigation.modal, Some(Modal::SleepTimer));
     // While an update installs, Restart and Power Off wait.
     ui.model_action(&mut m, Action::Back);
-    m.platform.busy = Some(PlatformTask::UpdateStage);
+    m.platform.busy = Some(PlatformTask::UpdateStage(None));
     ui.model_action(&mut m, Action::PowerHold);
     let rows = ui.modal_rows(&m, &[]);
     assert!(rows
@@ -2684,6 +2684,7 @@ fn update_page_follows_typed_state_and_capability() {
             version: "1.0.0-beta.8".into(),
         },
         can_download: true,
+        offered_sequence: Some(19900),
         ..Default::default()
     };
     m.platform.battery.charging = reborn_core::platform::ChargingState::OnBattery;
@@ -2696,11 +2697,12 @@ fn update_page_follows_typed_state_and_capability() {
     m.platform.battery.percent = Some(80);
     assert_eq!(
         select_key(&mut ui, &mut m, "update_now"),
-        Effect::Platform(PlatformTask::UpdateStage)
+        // Only the release the page showed (Y2Reborn #192).
+        Effect::Platform(PlatformTask::UpdateStage(Some(19900)))
     );
     assert!(ui.update_run);
     // The update owns the screen; Select is Cancel while it downloads.
-    m.platform.busy = Some(PlatformTask::UpdateStage);
+    m.platform.busy = Some(PlatformTask::UpdateStage(None));
     assert_eq!(ui.model_action(&mut m, Action::Back), Effect::None);
     assert_eq!(ui.model_action(&mut m, Action::Home), Effect::None);
     assert_eq!(m.screen, Screen::Update);
@@ -2759,6 +2761,14 @@ fn full_system_update_wording_and_versions() {
     };
     let page = pages::page(&ui, &m, &m.library.tracks);
     assert!(page.hero.unwrap().body.contains("restarts"));
+    // The page names the version downloaded (Y2Reborn #192).
+    m.platform.snapshot.update.queued_version = Some("1.0.0-beta.9.3.43".into());
+    let page = pages::page(&ui, &m, &m.library.tracks);
+    let body = page.hero.unwrap().body;
+    assert!(
+        body.contains("Version 1.0 Beta 9.3.43 is downloaded"),
+        "{body}"
+    );
     // One step (Beta 7.1): no second confirmation.
     assert!(page
         .rows
@@ -2793,7 +2803,7 @@ fn full_system_update_wording_and_versions() {
             .is_some_and(|h| h.title.contains("Firmware")));
     }
     // OTA-48: the live record wins while the download task runs.
-    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
     m.platform.download = Some(reborn_core::platform::DownloadLive {
         verifying: true,
         bytes_done: 1,
@@ -3796,9 +3806,10 @@ fn update_download_and_scanning_show_a_sweeping_ring_without_a_made_up_percentag
         "{text}"
     );
     // OTA-48: with the platform's live record, real numbers.
-    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
     m.platform.download = Some(reborn_core::platform::DownloadLive {
         verifying: false,
+        release: Some("1.0.0-beta.9.3.43".into()),
         bytes_done: 23_400_000,
         bytes_total: 58_700_000,
         speed_bytes_per_s: Some(3_250_000),
@@ -3813,6 +3824,8 @@ fn update_download_and_scanning_show_a_sweeping_ring_without_a_made_up_percentag
         "23.4 of 58.7 MB",
         "3.2 MB/s",
         "About 10 seconds left",
+        // Y2Reborn #192: the release downloading is named.
+        "Downloading 1.0 Beta 9.3.43",
         // Beta 7.6: the step tracker instead of "STEP 1 OF 3".
         "Download",
         "Check",
@@ -5730,7 +5743,7 @@ fn the_update_download_draws_at_the_full_frame_rate_without_the_cpu_boost() {
         ..radios()
     };
     let mut m = app(Screen::Settings);
-    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
     ui.observe(&m);
     assert!(!ui.gliding(), "a download behind another screen stays calm");
     m.screen = Screen::Update;
@@ -5753,9 +5766,10 @@ fn the_download_percentage_counts_with_the_bar() {
         ..radios()
     };
     let mut m = software_update();
-    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage);
+    m.platform.busy = Some(reborn_core::PlatformTask::UpdateStage(None));
     let live = |done| reborn_core::platform::DownloadLive {
         verifying: false,
+        release: None,
         bytes_done: done,
         bytes_total: 100_000_000,
         speed_bytes_per_s: Some(3_000_000),

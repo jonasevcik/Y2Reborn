@@ -530,7 +530,8 @@ impl Ui {
             }
             self.update_run = true;
             return Effect::Platform(if key == "update_now" {
-                PlatformTask::UpdateStage
+                // The release this page showed, and no other (Y2Reborn #192).
+                PlatformTask::UpdateStage(m.platform.snapshot.update.offered_sequence)
             } else {
                 PlatformTask::UpdateApply
             });

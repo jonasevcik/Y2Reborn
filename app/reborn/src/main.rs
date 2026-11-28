@@ -255,8 +255,8 @@ fn update_screen_waits(
     use reborn_core::PlatformTask::{UpdateApply, UpdateStage};
     update_run
         && !restarting
-        && !matches!(busy, Some(UpdateStage | UpdateApply))
-        && !matches!(queued, Some(UpdateStage | UpdateApply))
+        && !matches!(busy, Some(UpdateStage(_) | UpdateApply))
+        && !matches!(queued, Some(UpdateStage(_) | UpdateApply))
 }
 
 struct Runtime {

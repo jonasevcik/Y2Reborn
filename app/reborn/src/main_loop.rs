@@ -1157,7 +1157,11 @@ impl MainLoop {
         self.last_platform_screen = rt.model.screen;
         // The download task answers only when it is finished: show its live
         // progress from the platform's RAM file meanwhile (OTA-48).
-        if (rt.model.platform.busy == Some(reborn_core::PlatformTask::UpdateStage)
+        if (rt
+            .model
+            .platform
+            .busy
+            .is_some_and(reborn_core::PlatformTask::is_update_stage)
             || rt.model.platform.snapshot.update.phase
                 == reborn_core::platform::UpdatePhase::Downloading)
             && !rt.model.screen_off

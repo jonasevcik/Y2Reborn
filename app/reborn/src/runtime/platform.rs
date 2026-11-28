@@ -61,7 +61,7 @@ impl Runtime {
                 if let Err(error) = self.effect(Effect::Platform(task)) {
                     if matches!(
                         task,
-                        reborn_core::PlatformTask::UpdateStage
+                        reborn_core::PlatformTask::UpdateStage(_)
                             | reborn_core::PlatformTask::UpdateApply
                     ) {
                         self.ui.update_run = false;
@@ -254,7 +254,7 @@ impl Runtime {
                 if matches!(
                     task,
                     reborn_core::PlatformTask::UpdateCheck
-                        | reborn_core::PlatformTask::UpdateStage
+                        | reborn_core::PlatformTask::UpdateStage(_)
                         | reborn_core::PlatformTask::UpdateApply
                 ) {
                     self.log.emit(
@@ -275,7 +275,7 @@ impl Runtime {
                 refresh = true;
                 match result {
                     Ok(result) => {
-                        if task == UpdateStage {
+                        if task.is_update_stage() {
                             p.download = None;
                         }
                         if !result.succeeded {
@@ -290,11 +290,19 @@ impl Runtime {
                         p.failure = None;
                         p.result = Some(result);
                         match task {
-                            UpdateStage => {
+                            UpdateStage(_) => {
                                 // Ready at once, wherever the owner is; the
                                 // refresh that follows confirms the journal.
+                                let release = p.result.as_ref().and_then(|r| {
+                                    r.facts
+                                        .iter()
+                                        .find(|f| f.label == "Release")
+                                        .map(|f| f.value.clone())
+                                });
                                 let u = &mut p.snapshot.update;
                                 u.phase = reborn_core::platform::UpdatePhase::ReadyToInstall;
+                                u.queued_version = release;
+                                u.offered_sequence = None;
                                 u.can_install = true;
                                 u.can_cancel = true;
                                 u.can_download = false;
@@ -391,16 +399,21 @@ impl Runtime {
                     }
                     Err(error) => {
                         // The update page presents its own journaled reason.
-                        if matches!(task, UpdateStage | UpdateApply) {
+                        if matches!(task, UpdateStage(_) | UpdateApply) {
                             self.ui.update_run = false;
                             self.ui.update_restarting = false;
                         }
                         if matches!(task, UpdateApply | UpdateRollback) {
                             self.ui.flash(install_refusal(&error));
-                        } else if task == UpdateStage && error.contains("download_cancelled") {
+                        } else if task.is_update_stage()
+                            && (error == client::UPDATE_CANCELLED
+                                || error == client::UPDATE_RELEASE_CHANGED)
+                        {
+                            // A newer release: the refresh below offers it for the owner to
+                            // approve again (Y2Reborn #192).
                             p.download = None;
-                            self.ui.flash("Update cancelled. Nothing was changed.");
-                        } else if task == UpdateStage {
+                            self.ui.flash(error.clone());
+                        } else if task.is_update_stage() {
                             p.download = None;
                             self.ui
                                 .flash("The download didn't finish. Nothing was changed.");
@@ -416,7 +429,7 @@ impl Runtime {
                 }
             }
             client::Reply::Failed(task, error) => {
-                if task == reborn_core::PlatformTask::UpdateStage {
+                if task.is_update_stage() {
                     p.download = None;
                 }
                 if task == reborn_core::PlatformTask::Refresh {
