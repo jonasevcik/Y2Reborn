@@ -3145,6 +3145,103 @@ fn storage_with_both_volumes_and_two_actions_stays_on_the_screen() {
 }
 
 #[test]
+fn storage_with_three_or_four_actions_shows_the_focused_one_on_the_screen() {
+    use reborn_core::platform::InternalSetup;
+    let ui = radios();
+    let mut m = storage_with_a_card();
+    m.platform.snapshot.usb = UsbTransfer::Ready;
+    m.platform.snapshot.storage.sd = SdCard::ReadOnly(VolumeSpace {
+        state: VolumeState::Ready,
+        free_bytes: Some(44_000_000_000),
+        total_bytes: Some(128_000_000_000),
+    });
+    // A platform with the SD drive always lists its switch: a third action.
+    m.platform.snapshot.sd_disk = Some(false);
+    let tracks = m.library.tracks.clone();
+    let waiting = InternalSetup::Waiting {
+        files: 12,
+        bytes: 3_000_000_000,
+    };
+    // Three actions; four with the old storage waiting; the same with a warning above them.
+    for (setup, state, count) in [
+        (InternalSetup::NotNeeded, VolumeState::Ready, 3),
+        (waiting, VolumeState::Ready, 4),
+        (InternalSetup::NotNeeded, VolumeState::AlmostFull, 3),
+        (waiting, VolumeState::AlmostFull, 4),
+    ] {
+        m.platform.snapshot.internal_setup = setup;
+        m.platform.snapshot.storage.internal.state = state;
+        let labels: Vec<String> = ui.rows(&m, &tracks).into_iter().map(|r| r.label).collect();
+        assert_eq!(labels.len(), count, "{labels:?}");
+        for (focus, label) in labels.iter().enumerate() {
+            m.navigation.focus = focus;
+            let quads = ui.draw(&m, &tracks, false);
+            let bottom = quads.iter().map(|q| q.y + q.h).fold(0., f32::max);
+            let at = format!("{state:?} {count} actions, focus on {label:?}");
+            assert!(bottom <= crate::theme::HEIGHT, "{at}: drawn to {bottom}");
+            assert!(
+                drawn_text(&quads).contains(label.as_str()),
+                "{at}: not drawn"
+            );
+        }
+    }
+}
+
+#[test]
+fn storage_draws_its_warning_and_what_it_is_still_checking() {
+    let ui = radios();
+    let mut m = storage_with_a_card();
+    let tracks = m.library.tracks.clone();
+    let drawn = |m: &AppModel| drawn_text(&ui.draw(m, &tracks, false));
+    for (state, title, body) in [
+        (
+            VolumeState::AlmostFull,
+            "Storage Almost Full",
+            "Remove some music",
+        ),
+        (
+            VolumeState::LowSpace,
+            "Storage Running Low",
+            "when convenient",
+        ),
+        (
+            VolumeState::ReadOnly,
+            "Storage Problem",
+            "Internal storage can't be written",
+        ),
+        (
+            VolumeState::Error,
+            "Storage Problem",
+            "Internal storage can't be written",
+        ),
+    ] {
+        m.platform.snapshot.storage.internal.state = state;
+        let text = drawn(&m);
+        assert!(
+            text.contains(title) && text.contains(body),
+            "{state:?}: {text}"
+        );
+        // The volumes stay on the page under it.
+        assert!(text.contains("Internal Storage") && text.contains("40.0 GB"));
+    }
+    m.platform.snapshot.storage.internal.state = VolumeState::Ready;
+    // An SD card the platform has not reported yet is being checked, not missing.
+    m.platform.snapshot.storage.sd = SdCard::Unknown;
+    let text = drawn(&m);
+    assert!(
+        text.contains("Checking") && !text.contains("No SD card"),
+        "{text}"
+    );
+    // Before the platform's first answer nothing is known of either volume.
+    m.platform.snapshot.observed = false;
+    let text = drawn(&m);
+    assert!(
+        text.contains("Checking Storage") && !text.contains("No SD card"),
+        "{text}"
+    );
+}
+
+#[test]
 fn storage_battery_and_pc_transfer_present_user_states() {
     let ui = radios();
     let mut m = app(Screen::Storage);

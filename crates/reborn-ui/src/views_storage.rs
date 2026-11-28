@@ -1,12 +1,12 @@
 //! Settings → Library → Storage: a card per volume with its bar split by what fills it (music,
 //! audiobooks, films, other), a legend with size, count and play time, and the actions below.
 use crate::{
-    canvas::Canvas,
+    canvas::{Canvas, Icon, Moving},
     components,
-    pages::Page,
+    pages::{Hero, Page},
     storage_use::{self, Kinds, Share},
     text::{self, Face},
-    theme::{color, HEIGHT, WIDTH},
+    theme::{alpha, color, HEIGHT, WIDTH},
     views_settings::internal_note,
     RowKind, Ui,
 };
@@ -14,6 +14,7 @@ use reborn_core::{
     platform::{human_bytes, SdCard, VolumeSpace},
     AppModel, Track,
 };
+use std::ops::Range;
 
 const MUSIC: u32 = 0x6EA0FFFF;
 const BOOKS: u32 = 0xE8A23CFF;
@@ -27,13 +28,17 @@ const COLUMN: f32 = 212.;
 const NOTE_HEIGHT: f32 = 76.;
 /// The first card starts here, under the status bar.
 const TOP: f32 = 40.;
+/// The page's warning (Storage Almost Full, Storage Problem) above the cards: one line for what
+/// it is and one for what to do, low enough that one action row still fits under both cards.
+const BANNER: f32 = 40.;
 /// An action row, and what the last drawn thing keeps clear of the screen's edge.
 const ACTION: f32 = 44.;
 const MARGIN: f32 = 4.;
 
 /// The page's vertical rhythm. With room to spare it opens up from tight toward loose, so the lines
 /// stay easy to tell apart; when even tight does not fit (both cards with two legend rows and two
-/// actions) it squeezes and the footer lines go.
+/// actions) it squeezes and the footer lines go. Action rows that squeezed has no room for (three
+/// or four of them, or a warning above the cards) scroll.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Spacing {
     /// A card's top to its legend (name and bar).
@@ -99,9 +104,9 @@ impl Spacing {
         self.foot >= Self::TIGHT.foot
     }
 
-    /// Where the page ends: the cards, a gap before each, and the actions after a gap. `cards` holds
-    /// each card's legend rows, None for a card that only carries a note.
-    fn end(&self, cards: &[Option<usize>], actions: usize) -> f32 {
+    /// Where the page ends: the cards from `top`, a gap before each, and the actions after a gap.
+    /// `cards` holds each card's legend rows, None for a card that only carries a note.
+    fn end(&self, top: f32, cards: &[Option<usize>], actions: usize) -> f32 {
         let cards: f32 = cards
             .iter()
             .map(|rows| rows.map_or(NOTE_HEIGHT, |rows| self.card(rows)) + self.gap)
@@ -111,15 +116,15 @@ impl Spacing {
         } else {
             0.
         };
-        TOP + cards + actions
+        top + cards + actions
     }
 
     /// The loosest spacing that still leaves every card and `actions` rows on the screen.
-    fn fit(cards: &[Option<usize>], actions: usize) -> Spacing {
+    fn fit(top: f32, cards: &[Option<usize>], actions: usize) -> Spacing {
         let limit = HEIGHT - MARGIN;
         let (tight, loose) = (
-            Self::TIGHT.end(cards, actions),
-            Self::LOOSE.end(cards, actions),
+            Self::TIGHT.end(top, cards, actions),
+            Self::LOOSE.end(top, cards, actions),
         );
         if tight > limit {
             return Self::SQUEEZED;
@@ -128,6 +133,14 @@ impl Spacing {
             return Self::TIGHT;
         }
         Self::between(((limit - tight) / (loose - tight)).clamp(0., 1.))
+    }
+
+    /// How many of `actions` rows have room under the cards; the others scroll into view. Never
+    /// none while there are actions: squeezed cards leave room for one even under the warning.
+    fn shown(&self, top: f32, cards: &[Option<usize>], actions: usize) -> usize {
+        // `fit` opens the page up to the last pixel: a row short by a rounding error still fits.
+        let room = HEIGHT - MARGIN + 0.01 - self.end(top, cards, 0) - self.gap - 2.;
+        ((room / ACTION).floor().max(1.) as usize).min(actions)
     }
 }
 
@@ -167,6 +180,12 @@ pub fn screen(
     interactive: bool,
 ) {
     let snapshot = &m.platform.snapshot;
+    // Before the platform's first answer nothing is known of either volume: the page is its
+    // message alone ("Checking Storage…"), as every page that has nothing else to show.
+    if !snapshot.observed {
+        crate::views_settings::group_page(c, ui, m, page, focus, interactive, 38.);
+        return;
+    }
     let (internal, sd) = ui.library_kinds(m, tracks);
     let volumes = [
         (
@@ -205,8 +224,11 @@ pub fn screen(
         .iter()
         .map(|(_, _, legend)| legend.as_ref().map(|l| l.len().div_ceil(2)))
         .collect();
-    let spacing = Spacing::fit(&rows, page.rows.len());
-    let mut y = TOP;
+    // The page's warning first: nothing else on the screen says the storage is in trouble.
+    let top = page.hero.as_ref().map_or(TOP, |hero| banner(c, hero));
+    let count = page.rows.len();
+    let spacing = Spacing::fit(top, &rows, count);
+    let mut y = top;
     for (i, (name, space, legend)) in cards.iter().enumerate() {
         y += spacing.gap;
         y += match (space, legend) {
@@ -220,7 +242,43 @@ pub fn screen(
             }
         };
     }
-    actions(c, y + spacing.gap, page, focus, interactive);
+    let shown = spacing.shown(top, &rows, count);
+    let first = ui.group_window(m, focus, shown, count);
+    actions(
+        c,
+        ui,
+        y + spacing.gap,
+        page,
+        first..first + shown,
+        focus,
+        interactive,
+    );
+}
+
+/// The page's warning in a slim banner over the cards, in the look of Software Update's: what is
+/// wrong, and what to do under it. Returns where the cards start.
+fn banner(c: &mut Canvas, hero: &Hero) -> f32 {
+    let tint = color::WARNING;
+    c.rrect(10., TOP, WIDTH - 20., BANNER, 16., alpha(tint, 34));
+    c.rrect_outline(10., TOP, WIDTH - 20., BANNER, 16., 1., alpha(tint, 110));
+    c.icon(Icon::Warning, 30., TOP + BANNER / 2., 18., tint);
+    c.text_mid(
+        52.,
+        TOP + 13.,
+        WIDTH - 76.,
+        &hero.title,
+        Face::S13,
+        color::TEXT,
+    );
+    c.text_mid(
+        52.,
+        TOP + 28.,
+        WIDTH - 76.,
+        &hero.body,
+        Face::R11,
+        color::MUTED,
+    );
+    TOP + BANNER
 }
 
 /// Why a volume shows no bar.
@@ -235,7 +293,11 @@ fn missing_note(m: &AppModel, internal: bool) -> &'static str {
         SdCard::CheckTimedOut => "Check took too long · Insert it again",
         // Lent to the computer (SD Card as a USB Stick): there, not missing.
         SdCard::OnComputer => "On the computer · Eject it there",
-        _ => "No SD card",
+        // Not reported by the platform yet: the page's own fact reads the same.
+        SdCard::Unknown => "Checking…",
+        SdCard::Absent => "No SD card",
+        // A mounted card draws its bar instead of a note.
+        SdCard::Ready(_) | SdCard::ReadOnly(_) | SdCard::Unchecked(_) => "",
     }
 }
 
@@ -399,13 +461,35 @@ fn cell(c: &mut Canvas, x: f32, y: f32, line: f32, entry: &Entry) {
     );
 }
 
-/// The actions under the two volumes, straight on the screen as every list (#74).
-fn actions(c: &mut Canvas, top: f32, page: &Page, focus: usize, interactive: bool) {
-    for (i, row) in page.rows.iter().enumerate() {
-        let y = top + 2. + i as f32 * 44.;
+/// The actions under the two volumes, straight on the screen as every list (#74): the rows in
+/// `window`, which keeps its place until the focus reaches an edge, as on every settings page.
+fn actions(
+    c: &mut Canvas,
+    ui: &Ui,
+    top: f32,
+    page: &Page,
+    window: Range<usize>,
+    focus: usize,
+    interactive: bool,
+) {
+    let (count, visible) = (page.rows.len(), window.len());
+    let rows_at = c.draw.len();
+    for (i, row) in page
+        .rows
+        .iter()
+        .enumerate()
+        .skip(window.start)
+        .take(visible)
+    {
+        let y = top + 2. + (i - window.start) as f32 * ACTION;
         if interactive && i == focus && row.enabled {
-            // As wide as the cards above it: nothing scrolls here, so no room is kept for a bar.
-            components::focus_row(c, 10., y + 1., WIDTH - 20., 42.);
+            // As wide as the cards above it, unless the rows scroll: then clear of their rail.
+            let width = if visible < count {
+                WIDTH - 26.
+            } else {
+                WIDTH - 20.
+            };
+            components::focus_row(c, 10., y + 1., width, 42.);
         }
         let face = if interactive && i == focus {
             Face::S15
@@ -429,6 +513,23 @@ fn actions(c: &mut Canvas, top: f32, page: &Page, focus: usize, interactive: boo
         c.text_mid_right(WIDTH - 40., y + 22., &value, Face::R11, color::MUTED);
         components::chevron(c, WIDTH - 22., y + 22.);
     }
+    c.mark_moving(Moving::List {
+        start: rows_at,
+        end: c.draw.len(),
+        top,
+        bottom: top + visible as f32 * ACTION + 4.,
+        row_h: ACTION,
+        first: window.start,
+    });
+    components::scroll_rail(
+        c,
+        top + 4.,
+        visible as f32 * ACTION - 4.,
+        window.start,
+        count,
+        visible,
+        ui.accent(),
+    );
 }
 
 #[cfg(test)]
@@ -441,32 +542,42 @@ mod tests {
     fn a_page_that_cannot_fit_squeezes_and_still_ends_on_the_screen() {
         // Both cards with two legend rows and two action rows do not fit even tight.
         let cards = [Some(2), Some(2)];
-        assert!(Spacing::TIGHT.end(&cards, 2) > LIMIT);
-        let s = Spacing::fit(&cards, 2);
+        assert!(Spacing::TIGHT.end(TOP, &cards, 2) > LIMIT);
+        let s = Spacing::fit(TOP, &cards, 2);
         assert_eq!(s, Spacing::SQUEEZED);
-        assert!(!s.footer() && s.end(&cards, 2) <= LIMIT);
+        assert!(!s.footer() && s.end(TOP, &cards, 2) <= LIMIT);
     }
 
     #[test]
     fn spare_room_opens_the_page_up_and_never_past_loose() {
-        let roomy = Spacing::fit(&[Some(1), Some(1)], 0);
+        let roomy = Spacing::fit(TOP, &[Some(1), Some(1)], 0);
         assert!(roomy.pitch > Spacing::TIGHT.pitch && roomy.line > Spacing::TIGHT.line);
-        assert_eq!(Spacing::fit(&[None, None], 0), Spacing::LOOSE);
+        assert_eq!(Spacing::fit(TOP, &[None, None], 0), Spacing::LOOSE);
         // More to show leaves less air.
-        let more = Spacing::fit(&[Some(1), Some(2)], 0);
+        let more = Spacing::fit(TOP, &[Some(1), Some(2)], 0);
         assert!(roomy.pitch >= more.pitch && more.footer());
     }
 
     #[test]
     fn whatever_is_shown_the_page_ends_on_the_screen() {
         let shapes = [None, Some(1), Some(2)];
-        for a in shapes {
-            for b in shapes {
-                for actions in 0..=2 {
-                    let cards = [a, b];
-                    let s = Spacing::fit(&cards, actions);
-                    let end = s.end(&cards, actions);
-                    assert!(end <= LIMIT + 0.01, "{cards:?} {actions} actions: {end}");
+        // Without and with the warning above the cards.
+        for top in [TOP, TOP + BANNER] {
+            for a in shapes {
+                for b in shapes {
+                    for actions in 0..=4 {
+                        let cards = [a, b];
+                        let s = Spacing::fit(top, &cards, actions);
+                        // The rows without room scroll, and one is always in view.
+                        let shown = s.shown(top, &cards, actions);
+                        let at = format!("{top} {cards:?} {actions} actions");
+                        assert!(shown >= actions.min(1) && shown <= actions, "{at}: {shown}");
+                        if top == TOP && actions <= 2 {
+                            assert_eq!(shown, actions, "{at}: two actions always fit");
+                        }
+                        let end = s.end(top, &cards, shown);
+                        assert!(end <= LIMIT + 0.01, "{at}: {end}");
+                    }
                 }
             }
         }
@@ -474,9 +585,9 @@ mod tests {
 
     #[test]
     fn the_action_rows_keep_a_gap_under_the_last_card() {
-        let s = Spacing::fit(&[Some(1), Some(1)], 1);
-        let with = s.end(&[Some(1), Some(1)], 1);
-        let without = s.end(&[Some(1), Some(1)], 0);
+        let s = Spacing::fit(TOP, &[Some(1), Some(1)], 1);
+        let with = s.end(TOP, &[Some(1), Some(1)], 1);
+        let without = s.end(TOP, &[Some(1), Some(1)], 0);
         assert!(with - without >= ACTION + s.gap);
     }
 }
