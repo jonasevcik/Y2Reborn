@@ -209,6 +209,15 @@ fn radius_slot(r: f32) -> usize {
         .map_or(0, |(i, _)| i)
 }
 
+/// How wide the right corners and how tall the bottom ones are in a `w` × `h` box with corners
+/// `r` square. The table has no 27 or 31 px corner, so those snap up to 28 and 32, more than half
+/// of a box 54 or 62 px across (or 55, 63): there the right and bottom corners leave out what the
+/// left and top ones already cover. No two pieces overlap, so a translucent colour blends once,
+/// and circles and pills of those sizes keep their round ends.
+fn far_corner(r: f32, w: f32, h: f32) -> (f32, f32) {
+    (r.min(w - r), r.min(h - r))
+}
+
 pub struct Canvas {
     pub draw: Vec<Quad>,
     /// Where shared components drew things that move (Beta 7.2); one pass
@@ -357,19 +366,40 @@ impl Canvas {
         }
         let slot = radius_slot(r);
         let r = f32::from(mask::CORNER_RADII[slot]);
-        let c = &mask::CORNERS[slot];
+        let (_, bottom) = far_corner(r, w, h);
         self.rect(x + r, y, w - 2. * r, r, color);
-        self.rect(x, y + r, w, h - 2. * r, color);
-        self.rect(x + r, y + h - r, w - 2. * r, r, color);
+        self.rect(x, y + r, w, h - r - bottom, color);
+        self.rect(x + r, y + h - bottom, w - 2. * r, bottom, color);
+        self.corners(&mask::CORNERS[slot], (x, y, w, h), r, color);
+    }
+
+    /// The quarter sprites `c`, `r` square, in the corners of the box `b`; the right and bottom
+    /// ones cut on their inner side to the size `far_corner` leaves them.
+    fn corners(&mut self, c: &[[u16; 4]; 4], b: (f32, f32, f32, f32), r: f32, color: u32) {
+        let (x, y, w, h) = b;
+        let (right, bottom) = far_corner(r, w, h);
+        // Whole pixels: the box is rounded and `r` is a table radius.
+        let (cut_x, cut_y) = ((r - right) as u16, (r - bottom) as u16);
+        let cut = |s: [u16; 4], dx: u16, dy: u16| {
+            [
+                s[0] + dx,
+                s[1] + dy,
+                s[2].saturating_sub(dx),
+                s[3].saturating_sub(dy),
+            ]
+        };
+        let top_right = cut(c[Corner::TopRight as usize], cut_x, 0);
+        let bottom_left = cut(c[Corner::BottomLeft as usize], 0, cut_y);
+        let bottom_right = cut(c[Corner::BottomRight as usize], cut_x, cut_y);
         self.masked(c[Corner::TopLeft as usize], x, y, r, r, color);
-        self.masked(c[Corner::TopRight as usize], x + w - r, y, r, r, color);
-        self.masked(c[Corner::BottomLeft as usize], x, y + h - r, r, r, color);
+        self.masked(top_right, x + w - right, y, right, r, color);
+        self.masked(bottom_left, x, y + h - bottom, r, bottom, color);
         self.masked(
-            c[Corner::BottomRight as usize],
-            x + w - r,
-            y + h - r,
-            r,
-            r,
+            bottom_right,
+            x + w - right,
+            y + h - bottom,
+            right,
+            bottom,
             color,
         );
     }
@@ -404,17 +434,7 @@ impl Canvas {
         self.rect(x + r, y + h - t, w - 2. * r, t, color);
         self.rect(x, y + r, t, h - 2. * r, color);
         self.rect(x + w - t, y + r, t, h - 2. * r, color);
-        self.masked(c[Corner::TopLeft as usize], x, y, r, r, color);
-        self.masked(c[Corner::TopRight as usize], x + w - r, y, r, r, color);
-        self.masked(c[Corner::BottomLeft as usize], x, y + h - r, r, r, color);
-        self.masked(
-            c[Corner::BottomRight as usize],
-            x + w - r,
-            y + h - r,
-            r,
-            r,
-            color,
-        );
+        self.corners(c, (x, y, w, h), r, color);
     }
 
     /// Hide the corners of the square at (x, y, size) behind `bg`, turning a
@@ -645,6 +665,41 @@ mod tests {
         }
         let area: f32 = pieces.iter().map(|p| p.2 * p.3).sum();
         assert_eq!(area, 100. * 40.);
+    }
+
+    #[test]
+    fn corners_snapped_past_half_the_box_do_not_overlap() {
+        // The table has no 27 or 31 px corner. They snap to 28 and 32, more than half of a box
+        // 54 or 62 px across (55, 63), where the corners overlapped and a translucent colour
+        // showed a darker cross through the middle. The shapes keep their 28 and 32 px corners.
+        let boxes = [
+            (54., 54., 27.),
+            (55., 55., 27.),
+            (62., 62., 31.),
+            (63., 63., 31.),
+            (120., 54., 27.),
+            (54., 120., 27.),
+        ];
+        for (w, h, r) in boxes {
+            let mut fill = Canvas::new();
+            fill.rrect(10., 20., w, h, r, 0xFFFFFF30);
+            let mut outline = Canvas::new();
+            outline.rrect_outline(10., 20., w, h, r, 2., 0xFFFFFF30);
+            for c in [&fill, &outline] {
+                let pieces: Vec<_> = c.draw.iter().map(|q| (q.x, q.y, q.w, q.h)).collect();
+                for (i, a) in pieces.iter().enumerate() {
+                    for b in &pieces[i + 1..] {
+                        let overlap_x = a.0 < b.0 + b.2 && b.0 < a.0 + a.2;
+                        let overlap_y = a.1 < b.1 + b.3 && b.1 < a.1 + a.3;
+                        assert!(!(overlap_x && overlap_y), "{w}x{h}: {a:?} overlaps {b:?}");
+                    }
+                }
+                let top_left = c.draw.iter().find(|q| q.x == 10. && q.y == 20.);
+                assert_eq!(top_left.map(|q| (q.w, q.h)), Some((r + 1., r + 1.)));
+            }
+            let area: f32 = fill.draw.iter().map(|q| q.w * q.h).sum();
+            assert_eq!(area, w * h, "{w}x{h}");
+        }
     }
 
     #[test]

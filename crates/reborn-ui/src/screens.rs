@@ -264,7 +264,8 @@ pub(crate) fn skin_layout<'s>(
         return None;
     }
     let page = skin_page(ui, m, tracks);
-    let empty = m.screen == Screen::Albums && ui.row_count(m, tracks) == 0;
+    let empty =
+        matches!(m.screen, Screen::Albums | Screen::Audiobooks) && ui.row_count(m, tracks) == 0;
     layout_keys(m, page.as_ref(), empty)
         .iter()
         .find_map(|k| skin.layout(k).map(|l| (*k, l)))

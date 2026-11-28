@@ -249,7 +249,7 @@ pub(super) fn radio_categories(ui: &Ui) -> Page {
                 row(
                     &c.name,
                     &format!("category:{i}"),
-                    format!("{} stations", c.stations),
+                    crate::components::count(c.stations as usize, "station", "stations"),
                 )
             })
             .collect(),

@@ -277,6 +277,35 @@ fn strict_validation_names_the_problem() {
 }
 
 #[test]
+fn the_indicators_own_fields_are_refused_on_other_elements() {
+    // Loading is strict: "gap", "dim" and "charge" belong to "indicators" alone, and a skin that
+    // names one on a text is told so, as with any other field in the wrong place.
+    for field in [r#""gap": 4"#, r#""dim": "text""#, r#""charge": "accent""#] {
+        let screens =
+            format!(r#"{{"list": [{{"type": "text", "w": 1, "h": 1, "text": "x", {field}}}]}}"#);
+        let error = compile_test(&screens).expect_err(&screens);
+        let name = field.split('"').nth(1).unwrap_or_default();
+        assert!(
+            error.contains(&format!("\"text\" has no field \"{name}\"")),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn a_slice_wider_than_any_picture_is_refused_on_loading() {
+    // The insets are 16-bit: 65535 + 2 must not wrap round to 1 and pass as leaving a middle,
+    // nor stop the loading on an overflow.
+    for slice in ["[65535, 0, 2, 0]", "[0, 65535, 0, 2]"] {
+        let screens = format!(
+            r#"{{"list": [{{"type": "image", "w": 9, "h": 9, "image": "bar", "slice": {slice}}}]}}"#
+        );
+        let error = compile_test(&screens).expect_err(&screens);
+        assert!(error.contains("leaves no middle"), "{error}");
+    }
+}
+
+#[test]
 fn files_are_named_inside_the_skin_and_within_limits() {
     for (file, needle) in [
         ("../outside.png", "must be a path inside"),
@@ -1049,6 +1078,35 @@ fn cover_flow_follows_the_skin_captions_and_cover_shape() {
     assert!(!skinned(shaped("square").unwrap()).round_covers());
     assert!(!shaped("rounded").unwrap().square_covers);
     assert!(shaped("oval").unwrap_err().contains("cover_shape \"oval\""));
+}
+
+#[test]
+fn an_empty_audiobook_shelf_shows_its_empty_state_not_an_empty_cover_flow() {
+    // With Cover Flow on and the card holding the books taken out, Audiobooks takes the empty
+    // state as Albums does (and Reborn's own drawing), not a glide of no covers.
+    let screens = LIST.replacen(
+        '{',
+        r#"{"cover_flow": [{"type": "native", "part": "screen"}], "#,
+        1,
+    );
+    let ui = skinned(compile_test(&screens).unwrap());
+    let skin = ui.skin.as_deref().expect("skinned");
+    let layout = |m: &AppModel, tracks: &[Track]| {
+        crate::screens::skin_layout(skin, &ui, m, tracks).map(|(key, _, _)| key)
+    };
+    let mut books = library(1);
+    books[0].path = "/data/music/Hörbücher/Momo/01.mp3".into();
+    books[0].book = reborn_core::books::is_book(&books[0]);
+    let m = model(Screen::Audiobooks);
+    assert!(crate::cover_flow(&m));
+    assert_eq!(layout(&m, &books), Some("cover_flow"));
+    for screen in [Screen::Albums, Screen::Audiobooks] {
+        assert_ne!(
+            layout(&model(screen), &[]),
+            Some("cover_flow"),
+            "{screen:?}"
+        );
+    }
     for json in SHIPPED {
         assert!(
             json.contains(r#""cover_flow": ["#),

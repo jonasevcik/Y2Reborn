@@ -142,9 +142,12 @@ impl Spec {
             line_height,
             tracking,
             knob_radius,
+            gap,
             rows,
             row_height,
             color,
+            dim,
+            charge,
             top,
             bottom,
             image,
@@ -518,7 +521,9 @@ impl Compiler<'_> {
             .transpose()?;
         let slice_for = |src: [u16; 4], name: &str| -> Result<Option<[u16; 4]>, String> {
             if let Some(s) = e.slice {
-                if s[0] + s[2] >= src[2] || s[1] + s[3] >= src[3] {
+                // Added in 32 bits: two insets can each be up to 65535.
+                let sum = |a: u16, b: u16| u32::from(a) + u32::from(b);
+                if sum(s[0], s[2]) >= u32::from(src[2]) || sum(s[1], s[3]) >= u32::from(src[3]) {
                     return Err(format!("{at}: \"slice\" leaves no middle in \"{name}\""));
                 }
             }

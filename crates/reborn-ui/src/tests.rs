@@ -5212,6 +5212,26 @@ fn radio_countries_and_genres_open_their_station_lists() {
 }
 
 #[test]
+fn a_country_or_genre_counts_its_stations_as_reborns_own_list_does() {
+    // A skin shows the rows' detail line: "1 station", and thousands set apart, not "1 stations".
+    let mut ui = radios();
+    ui.radio.online = true;
+    let m = app(Screen::RadioCategories);
+    let category = |name: &str, stations: u32| crate::RadioCategory {
+        id: name.into(),
+        name: name.into(),
+        stations,
+    };
+    ui.radio.categories = vec![category("Andorra", 1), category("Germany", 4210)];
+    let details: Vec<_> = ui
+        .rows(&m, &m.library.tracks)
+        .into_iter()
+        .map(|r| r.secondary)
+        .collect();
+    assert_eq!(details, ["1 station", "4\u{a0}210 stations"]);
+}
+
+#[test]
 fn the_search_page_previews_while_typing_and_folds_the_keys_into_its_results() {
     let mut ui = Ui::default();
     let mut m = app(Screen::Home);
