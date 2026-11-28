@@ -105,6 +105,10 @@ type DetailCache = Option<((usize, usize), String, String)>;
 type GroupCount = Option<((usize, usize), String, usize)>;
 /// Songs and milliseconds per (album artist, album), for a library.
 type AlbumTotals = Option<((usize, usize), HashMap<(String, String), AlbumTotal>)>;
+/// Library stamp and whether it holds a book and a film on the player.
+type ShelvesCache = Option<((usize, usize), (bool, bool))>;
+/// Library stamp, the playing song's id and source, and its library index.
+type PlayingIndex = Option<((usize, usize), i64, String, Option<usize>)>;
 
 /// One album's songs, length and year (the earliest of its songs'; 0 unknown), counted once.
 #[derive(Clone, Copy, Debug, Default)]
@@ -535,6 +539,13 @@ pub struct Ui {
     /// Station logos the last frame wanted: thumbnail key and logo address.
     wanted_logos: RefCell<Vec<(u64, String)>>,
     counts: RefCell<CountsCache>,
+    /// Whether the library holds a book and a film, looked for once per library: Home asks on
+    /// every frame while the playing wave moves, and finding out reads every song of a library
+    /// with neither.
+    shelves: std::cell::Cell<ShelvesCache>,
+    /// The playing song's library index, looked for once per song and library: Now Playing
+    /// asks on every frame (its heart, a skin's `favorite`, the rows of its menu).
+    playing_index: RefCell<PlayingIndex>,
     storage_use: RefCell<KindsCache>,
     /// A dialog the player raises by itself (Bluetooth failure, low battery).
     pub alert: Option<Alert>,
@@ -585,8 +596,12 @@ pub struct Ui {
     /// the new song in and pulses the button (Beta 7.2).
     np_seen: std::cell::Cell<Option<(i64, bool)>>,
     battery_acked: u8,
-    /// Something on screen sweeps with time (a spinner), so keep redrawing.
+    /// Work that shows a spinner runs (a scan, a Bluetooth request, a download).
     spinning: bool,
+    /// The frame last drawn shows a spinner: it asked `spin_phase` or `download_fill`. While
+    /// `spinning`, only such a frame asks for the next; Home or a list on screen during a scan
+    /// is no longer drawn again about 29 times a second.
+    spinner_drawn: std::cell::Cell<bool>,
     /// The update's download or check is on screen (Beta 7.6): its bar,
     /// sweep and count run at the panel's full frame rate, like motion.
     download_shown: bool,

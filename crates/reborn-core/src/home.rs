@@ -59,14 +59,16 @@ pub fn moved<T: Clone>(items: &[T], from: usize, to: usize) -> Vec<T> {
     out
 }
 
+/// What the library holds on the player that has a place of its own on Home: (a book, a film).
+/// Whether Audiobooks stands there also takes its switch (`Settings::home_place_shown`).
+pub fn home_shelves(tracks: &[Track]) -> (bool, bool) {
+    (
+        tracks.iter().any(|t| t.book && t.online),
+        tracks.iter().any(|t| t.online && t.is_video()),
+    )
+}
+
 impl Settings {
-    /// What the library holds that has a place of its own on Home: (audiobooks, films).
-    pub fn home_shelves(&self, tracks: &[Track]) -> (bool, bool) {
-        (
-            self.audiobooks_on_home && tracks.iter().any(|t| t.book && t.online),
-            tracks.iter().any(|t| t.online && t.is_video()),
-        )
-    }
     /// Home's places in the listener's order (all of them, shown or not).
     pub fn home_places(&self) -> Vec<(&'static str, &'static str)> {
         ordered(&HOME_PLACES, &self.home_order, |(key, _)| key)

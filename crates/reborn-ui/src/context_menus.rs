@@ -285,8 +285,7 @@ impl Ui {
         }
         let queue_target = self.queue_target(m, Some(&source_key));
         let track_index = if m.screen == Screen::NowPlaying {
-            m.current()
-                .and_then(|current| tracks.iter().position(|track| track.id == current.id))
+            self.current_index(m, tracks)
         } else {
             self.menu_song(m, tracks, &source_key)
         };
@@ -669,12 +668,23 @@ impl Ui {
         Effect::None
     }
 
-    /// The library index of the song playing.
+    /// The library index of the song playing. Now Playing asks on every frame (its heart, a
+    /// skin's `favorite`, the rows of its menu) and finding it can read the whole library, so
+    /// the answer is kept until the song or the library changes.
     pub(crate) fn current_index(&self, m: &AppModel, tracks: &[Track]) -> Option<usize> {
         let current = m.current()?;
-        tracks
+        let stamp = crate::library_stamp(tracks);
+        let mut cache = self.playing_index.borrow_mut();
+        if let Some((seen, id, source, index)) = &*cache {
+            if *seen == stamp && *id == current.id && *source == current.source_id {
+                return *index;
+            }
+        }
+        let index = tracks
             .iter()
-            .position(|t| t.id == current.id && t.source_id == current.source_id)
+            .position(|t| t.id == current.id && t.source_id == current.source_id);
+        *cache = Some((stamp, current.id, current.source_id.clone(), index));
+        index
     }
 
     /// The heart in a song's menu.

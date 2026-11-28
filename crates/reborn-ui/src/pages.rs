@@ -59,9 +59,9 @@ impl Page {
 /// Home (UI v4): the places a listener starts from, in the listener's order (Y2Reborn #53):
 /// Audiobooks once the library holds a book (Beta 8.19, can be switched off), any Music lists
 /// pinned, and Home's own places unless taken off (#52, #55). Now Playing stays first, Settings
-/// last.
-pub(crate) fn home_rows(s: &Settings, tracks: &[Track]) -> Vec<Item> {
-    let (has_books, has_videos) = s.home_shelves(tracks);
+/// last. `shelves` is whether the library holds a book and a film (`Ui::home_shelves`).
+pub(crate) fn home_rows(s: &Settings, shelves: (bool, bool)) -> Vec<Item> {
+    let (has_books, has_videos) = shelves;
     let mut rows = vec![row("Now Playing", "now_playing", "")];
     rows.extend(
         s.home_places()
@@ -78,8 +78,7 @@ pub(crate) fn home_rows(s: &Settings, tracks: &[Track]) -> Vec<Item> {
 /// empty shelf, so a switch that is on does not look broken (Y2Reborn #195).
 fn home_menu(ui: &Ui, m: &AppModel, tracks: &[Track]) -> Page {
     let carried = ui.home_moving.map(|c| c.to);
-    let has_books = tracks.iter().any(|t| t.book && t.online);
-    let has_videos = tracks.iter().any(|t| t.online && t.is_video());
+    let (has_books, has_videos) = ui.home_shelves(tracks);
     let rows = ui
         .home_menu_places(m)
         .into_iter()
@@ -185,7 +184,7 @@ fn disabled(mut item: Item, enabled: bool) -> Item {
 
 pub fn page(ui: &Ui, m: &AppModel, tracks: &[Track]) -> Page {
     match m.screen {
-        Screen::Home => Page::rows(home_rows(&m.settings, tracks)),
+        Screen::Home => Page::rows(home_rows(&m.settings, ui.home_shelves(tracks))),
         Screen::Music => Page::rows(music(ui, m, tracks)),
         Screen::HomeMenu => home_menu(ui, m, tracks),
         Screen::NowPlaying if m.current().is_none() => Page::hero(

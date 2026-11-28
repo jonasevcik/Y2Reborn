@@ -4,6 +4,7 @@ use crate::*;
 impl Ui {
     pub fn draw(&self, m: &AppModel, tracks: &[Track], has_art: bool) -> Vec<Quad> {
         self.motion.begin_frame();
+        self.spinner_drawn.set(false);
         glyph_cache::begin_frame();
         let mut frame = screens::draw(self, m, tracks, has_art);
         self.flow.borrow_mut().end_frame();

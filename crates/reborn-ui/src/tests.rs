@@ -589,6 +589,35 @@ fn the_home_menu_says_when_an_empty_shelf_keeps_a_place_off_home() {
 }
 
 #[test]
+fn home_looks_for_books_and_films_once_per_library_and_when_a_card_goes() {
+    // Home is drawn about 29 times a second while a song plays. Whether Audiobooks and Videos
+    // stand on it read the whole library on every one of those frames.
+    let ui = radios();
+    let mut m = app(Screen::Home);
+    with_book(&mut m);
+    m.library.tracks[0].codec = "h264/aac".into();
+    let mut tracks = m.library.tracks.clone();
+    let shelves = |tracks: &[Track]| -> [bool; 2] {
+        let rows = ui.rows(&m, tracks);
+        ["audiobooks", "videos"].map(|key| rows.iter().any(|r| r.key == key))
+    };
+    assert_eq!(shelves(&tracks), [true, true]);
+    // The library changed where it lies (the app never does that: it publishes a new one).
+    // The next frame still shows what was found, so it did not read the library again.
+    for t in &mut tracks {
+        t.online = false;
+    }
+    assert_eq!(shelves(&tracks), [true, true], "read once per library");
+    // A card taken out: the app publishes the library again and says so
+    // (`invalidate_catalog`). The very next frame leaves out what the card held.
+    ui.invalidate_catalog();
+    assert_eq!(shelves(&tracks), [false, false]);
+    // The card back: a new library, looked at again without being told.
+    let back = m.library.tracks.clone();
+    assert_eq!(shelves(&back), [true, true]);
+}
+
+#[test]
 fn the_book_list_and_page_follow_progress_and_start_books() {
     use reborn_core::books::{books, Shelf};
     let mut ui = radios();
@@ -3789,8 +3818,8 @@ fn update_download_and_scanning_show_a_sweeping_ring_without_a_made_up_percentag
     let mut m = software_update();
     m.platform.snapshot.update.phase = UpdatePhase::Downloading;
     ui.observe(&m);
-    assert!(ui.animating());
     let text = drawn_text(&ui.draw(&m, &m.library.tracks, false));
+    assert!(ui.animating(), "its frame shows the sweep");
     assert!(
         text.contains("Downloading Update") && text.contains("Connecting") && !text.contains('%'),
         "{text}"
@@ -3830,6 +3859,31 @@ fn update_download_and_scanning_show_a_sweeping_ring_without_a_made_up_percentag
     m.platform.snapshot.update.phase = UpdatePhase::UpToDate;
     ui.observe(&m);
     ui.volume_until = None;
+    assert!(!ui.animating());
+}
+
+#[test]
+fn a_scan_keeps_drawing_only_a_screen_that_shows_its_spinner() {
+    // A scan after power-on can run for minutes. Home and the lists, with no spinner on them,
+    // were drawn about 29 times a second all along; now only a frame with a ring asks for the
+    // next one.
+    let mut ui = radios();
+    ui.clock_fixed = Some(1_791_798_060);
+    let mut m = app(Screen::Home);
+    ui.observe(&m);
+    m.library.scanning = true;
+    assert!(ui.observe(&m), "the scan starting is drawn");
+    ui.draw(&m, &m.library.tracks, false);
+    assert!(!ui.observe(&m), "nothing new to draw");
+    assert!(!ui.animating(), "nothing on Home turns");
+    // The empty library's page shows the scan's ring: it turns while the scan runs.
+    m.screen = Screen::Albums;
+    m.library.tracks.clear();
+    ui.draw(&m, &[], false);
+    assert!(!ui.observe(&m));
+    assert!(ui.animating(), "the ring turns");
+    m.library.scanning = false;
+    assert!(ui.observe(&m), "the scan ending is drawn");
     assert!(!ui.animating());
 }
 
@@ -5614,6 +5668,66 @@ fn add_to_playlist_from_a_song_new_playlist_and_the_favorites_heart() {
         ui.toggle_favorite_track(&m, &tracks, 5),
         Effect::Playlist(request) if matches!(*request, PlaylistRequest::Edit { edit: PlaylistEdit::Append(_), .. })
     ));
+}
+
+#[test]
+fn now_playing_knows_the_song_playing_by_its_id_and_its_source() {
+    use reborn_core::{playlist::PlaylistEdit, PlaylistRequest};
+    // The heart, a skin's `favorite` and the rows of the menu ask on every Now Playing frame
+    // where the song playing stands in the library: one answer, kept per song and library.
+    // The same id under another source (a card read under an earlier id) is another song,
+    // for the menu's heart too.
+    let (mut ui, mut m) = playlists_app();
+    let mut other = m.library.tracks[7].clone();
+    other.source_id = "sd-old".into();
+    other.path = "/media/sd/album2/song7.flac".into();
+    other.online = false;
+    m.library.tracks.insert(0, other);
+    let queue = vec![m.library.tracks[8].clone(), m.library.tracks[6].clone()];
+    m.replace_queue(queue, 0).unwrap();
+    m.screen = Screen::NowPlaying;
+    let mut tracks = m.library.tracks.clone();
+    let heart = |ui: &Ui, m: &AppModel, tracks: &[Track]| {
+        ui.draw(m, tracks, false)
+            .iter()
+            .any(|q| q.color == 0xFF5A7AFF)
+    };
+    assert!(heart(&ui, &m, &tracks), "song 7 is in Favorites");
+    // The menu's heart says so, and takes this song out, not the other copy.
+    ui.action(&mut m, &tracks, Action::Select);
+    let rows = ui.modal_rows_public(&m, &tracks);
+    m.navigation.modal_focus = rows.iter().position(|r| r.key == "fav_toggle").unwrap();
+    assert_eq!(
+        rows[m.navigation.modal_focus].label,
+        "Remove from Favorites"
+    );
+    assert_eq!(
+        ui.action(&mut m, &tracks, Action::Select),
+        Effect::Playlist(Box::new(PlaylistRequest::Edit {
+            path: "/data/music/Playlists/Favorites.m3u8".into(),
+            edit: PlaylistEdit::RemoveLocations(vec!["../album2/song7.flac".into()]),
+            create: true,
+        }))
+    );
+    m.queue_position = 1;
+    assert!(
+        !heart(&ui, &m, &tracks),
+        "the next song is not in Favorites"
+    );
+    // The library changed where it lies (the app never does that: it publishes a new one).
+    // The frame keeps the place it found, so it did not search the library again.
+    m.queue_position = 0;
+    assert!(heart(&ui, &m, &tracks));
+    tracks[8].id = 99;
+    assert!(
+        heart(&ui, &m, &tracks),
+        "searched once per song and library"
+    );
+    ui.invalidate_catalog();
+    assert!(!heart(&ui, &m, &tracks));
+    // A library published again in another order: the song is found where it now stands.
+    let moved: Vec<Track> = m.library.tracks.iter().rev().cloned().collect();
+    assert!(heart(&ui, &m, &moved));
 }
 
 #[test]
@@ -8719,7 +8833,7 @@ fn home_menu_moves_a_place_and_home_follows_its_order() {
     };
     assert_eq!(order.last().map(String::as_str), Some("music"));
     m.settings.home_order = order;
-    let home: Vec<_> = crate::pages::home_rows(&m.settings, &[])
+    let home: Vec<_> = crate::pages::home_rows(&m.settings, (false, false))
         .into_iter()
         .map(|r| r.key)
         .collect();

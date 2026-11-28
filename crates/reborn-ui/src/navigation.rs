@@ -82,8 +82,9 @@ impl Ui {
         else {
             return;
         };
-        let before = pages::home_rows(&m.settings, tracks);
-        let after = pages::home_rows(&after, tracks);
+        let shelves = reborn_core::home::home_shelves(tracks);
+        let before = pages::home_rows(&m.settings, shelves);
+        let after = pages::home_rows(&after, shelves);
         let frame = &mut m.navigation.history[at];
         let key = before.get(frame.focus).map(|r| r.key.as_str());
         frame.focus = key

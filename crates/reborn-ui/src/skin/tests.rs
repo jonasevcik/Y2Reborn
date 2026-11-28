@@ -712,6 +712,47 @@ fn skins_say_when_the_sleep_timer_runs() {
 }
 
 #[test]
+fn a_skins_heart_follows_the_song_playing_and_the_library() {
+    // Every shipped skin shows its heart with `"if": "favorite"`, asked on every Now Playing
+    // frame. The same id under another source (a card read under an earlier id) is another
+    // song.
+    let screens = r##"{"now_playing": [
+  {"type": "text", "if": "favorite", "x": 0, "y": 300, "w": 480, "h": 30, "text": "Loved"}
+]}"##;
+    let mut ui = skinned(compile_test(screens).unwrap());
+    ui.playlists
+        .set_lists(vec![reborn_core::playlist::Playlist {
+            path: "/data/music/Playlists/Favorites.m3u8".into(),
+            name: "Favorites".into(),
+            entries: vec![reborn_core::playlist::PlaylistEntry {
+                location: "../a/2.flac".into(),
+                ..Default::default()
+            }],
+            stamp: (1, 1),
+            ..Default::default()
+        }]);
+    let mut tracks = library(4);
+    let mut other = tracks[2].clone();
+    other.source_id = "sd-old".into();
+    other.path = "/media/sd/a/2.flac".into();
+    let mut m = model(Screen::NowPlaying);
+    m.queue = vec![other.clone(), tracks[2].clone(), tracks[1].clone()];
+    tracks.insert(0, other);
+    let loved = |m: &AppModel, tracks: &[Track]| {
+        crate::tests::drawn_text(&ui.draw(m, tracks, false)).contains("Loved")
+    };
+    assert!(!loved(&m, &tracks), "the other copy is not in Favorites");
+    m.queue_position = 1;
+    assert!(loved(&m, &tracks), "this song is");
+    m.queue_position = 2;
+    assert!(!loved(&m, &tracks), "the next one is not");
+    // A library published again in another order: the song is found where it now stands.
+    m.queue_position = 1;
+    let moved: Vec<Track> = tracks.iter().rev().cloned().collect();
+    assert!(loved(&m, &moved));
+}
+
+#[test]
 fn indicators_show_charging_and_the_radios_right_to_left_and_close_up() {
     // Y2Linux #70, #73: skins showed only the battery and the clock.
     let screens = r##"{"now_playing": [

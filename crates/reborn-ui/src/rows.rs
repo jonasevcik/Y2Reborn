@@ -93,8 +93,13 @@ impl Ui {
             .iter()
             .find_map(|row| row.track().and_then(|i| tracks.get(i)))
     }
+    /// The library was published again or a source came or went (the app calls this then).
+    /// Home's shelves and the playing song's index are looked for again too: a new library can
+    /// land where the old one lay, with as many songs, and so carry the same stamp.
     pub fn invalidate_catalog(&self) {
         self.catalog.borrow_mut().clear();
+        self.shelves.set(None);
+        *self.playing_index.borrow_mut() = None;
     }
     /// The catalog for this screen, with the playlists the search looks
     /// through as Playlists lists them (refreshed when they change).

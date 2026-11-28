@@ -98,7 +98,7 @@ impl Ui {
     pub fn animating(&self) -> bool {
         self.volume_until.is_some()
             || self.power_hold.is_some()
-            || self.spinning
+            || (self.spinning && self.spinner_drawn.get())
             || self.in_motion()
             || (self.ui_motion && self.motion.live())
             || glyph_cache::pending()
@@ -348,8 +348,10 @@ impl Ui {
 
     /// The download bar's fill for this frame: it glides toward the reported
     /// value (reports come four times a second), and starts from empty when
-    /// the step changes from download to check.
+    /// the step changes from download to check. It moves with time as a
+    /// spinner does, so its frame counts as showing one.
     pub(crate) fn download_fill(&self, target: f32, verifying: bool) -> f32 {
+        self.spinner_drawn.set(true);
         let target = target.clamp(0., 1.);
         if self.motion_fixed || self.spin_fixed.is_some() {
             return target;
@@ -367,8 +369,10 @@ impl Ui {
         next
     }
 
-    /// A 0..1 phase for spinners, one turn about every 1.6 s.
+    /// A 0..1 phase for spinners, one turn about every 1.6 s. Every spinner
+    /// asks for it, so asking marks the frame as showing one.
     pub fn spin_phase(&self) -> f32 {
+        self.spinner_drawn.set(true);
         if let Some(fixed) = self.spin_fixed {
             return fixed;
         }
@@ -385,8 +389,9 @@ impl Ui {
 
     /// Watch platform state the UI reacts to by itself: a computer connecting,
     /// a Bluetooth request finishing or failing, the battery running low,
-    /// work that shows a spinner and the clock's minute turning over.
-    /// Returns whether the screen needs redrawing.
+    /// work that shows a spinner starting or ending, and the clock's minute
+    /// turning over. Returns whether the screen needs redrawing; a spinner
+    /// on screen keeps turning through `animating`.
     pub fn observe(&mut self, m: &AppModel) -> bool {
         let before = (
             self.usb_state,
@@ -460,7 +465,6 @@ impl Ui {
                 self.bt_busy.is_some(),
                 self.spinning,
             )
-            || self.spinning
             || ticked
     }
 
@@ -584,6 +588,21 @@ impl Ui {
         let counts = [artists.len(), albums.len(), songs, genres.len()];
         *self.counts.borrow_mut() = Some((stamp, list, counts));
         counts
+    }
+
+    /// Whether the library holds a book and a film on the player, looked for again only when
+    /// the library changes: a new library has a new stamp, and the app calls
+    /// `invalidate_catalog` when it publishes one or a card comes or goes.
+    pub(crate) fn home_shelves(&self, tracks: &[Track]) -> (bool, bool) {
+        let stamp = crate::library_stamp(tracks);
+        if let Some((seen, shelves)) = self.shelves.get() {
+            if seen == stamp {
+                return shelves;
+            }
+        }
+        let shelves = reborn_core::home::home_shelves(tracks);
+        self.shelves.set(Some((stamp, shelves)));
+        shelves
     }
 
     /// The accent of every control and state (UI v4): a skin's fixed accent,

@@ -123,11 +123,7 @@ impl Scene<'_> {
             Flag::Favorite => m
                 .current()
                 .filter(|t| !t.is_radio())
-                .and_then(|t| {
-                    self.tracks
-                        .iter()
-                        .position(|x| x.id == t.id && x.source_id == t.source_id)
-                })
+                .and_then(|_| self.ui.current_index(m, self.tracks))
                 .is_some_and(|i| self.ui.is_favorite_track(m, self.tracks, i)),
             Flag::HasBody => !self.text(Var::PageBody, None).is_empty(),
             Flag::HasTitle => !screen_title(m).is_empty(),

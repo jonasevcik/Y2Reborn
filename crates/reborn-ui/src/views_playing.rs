@@ -136,9 +136,7 @@ pub fn now_playing(
             x += components::tag(c, x, info_cy, &label, accent) + 8.;
         }
         // Favorites' heart for the song playing.
-        let index = tracks
-            .iter()
-            .position(|x| x.id == t.id && x.source_id == t.source_id);
+        let index = ui.current_index(m, tracks);
         if index.is_some_and(|i| ui.is_favorite_track(m, tracks, i)) {
             c.icon(Icon::HeartOn, x + 9., info_cy, 17., 0xFF5A7AFF);
         }
