@@ -1223,6 +1223,22 @@ fn diagnostics_is_the_only_technical_subtree_and_lives_under_system() {
 }
 
 #[test]
+fn the_service_menu_opens_software_update_and_shows_the_short_version() {
+    let mut ui = radios();
+    let mut m = app(Screen::SettingsSystem);
+    let rows = ui.rows(&m, &m.library.tracks);
+    let label = |label: &str| rows.iter().position(|r| r.label == label).unwrap();
+    let about = rows[label("About")].secondary.clone();
+    m.navigation.focus = label("Software Update");
+    ui.model_action(&mut m, Action::Select);
+    assert_eq!(
+        (m.screen, m.navigation.filter.as_str()),
+        (Screen::Update, pages::SOFTWARE_UPDATE)
+    );
+    assert_eq!(about, pages::short_version(reborn_core::VERSION));
+}
+
+#[test]
 fn storage_offers_the_computer_page_only_while_a_cable_is_in() {
     let ui = radios();
     let mut m = app(Screen::Storage);
@@ -1471,6 +1487,40 @@ fn the_quick_menu_switches_radios_sets_brightness_and_turns_off() {
     m.platform.busy = None;
     assert_eq!(select(&mut ui, &mut m, 5), Effect::PowerOff);
     assert_eq!(m.navigation.modal, None);
+}
+
+#[test]
+fn the_quick_menu_sleep_timer_opens_on_the_timer_set() {
+    use reborn_core::SleepChoice;
+    let mut ui = radios();
+    let mut m = app(Screen::Albums);
+    let open = |ui: &mut Ui, m: &mut AppModel| {
+        ui.model_action(m, Action::PowerHold);
+        m.navigation.modal_focus = ui
+            .modal_rows(m, &[])
+            .iter()
+            .position(|r| r.key == "quick:sleep")
+            .unwrap();
+        ui.model_action(m, Action::Select);
+        assert_eq!(m.navigation.modal, Some(Modal::SleepTimer));
+    };
+    // Off: on 30 min, as from Now Playing's menu.
+    open(&mut ui, &mut m);
+    assert_eq!(
+        ui.model_action(&mut m, Action::Select),
+        Effect::SetSleepTimer(SleepChoice::Minutes(30))
+    );
+    // Running: a quick Select keeps it instead of turning it off.
+    m.sleep_timer = Some(reborn_core::SleepTimer {
+        choice: SleepChoice::Minutes(45),
+        until: Some(Instant::now() + Duration::from_secs(20 * 60)),
+        item: m.sleep_item(),
+    });
+    open(&mut ui, &mut m);
+    assert_eq!(
+        ui.model_action(&mut m, Action::Select),
+        Effect::SetSleepTimer(SleepChoice::Minutes(45))
+    );
 }
 
 #[test]
@@ -2943,6 +2993,25 @@ fn empty_library_and_queue_offer_one_recovery_action() {
 }
 
 #[test]
+fn select_on_an_empty_list_scans_only_where_it_offers_to() {
+    let mut ui = radios();
+    // Nothing played yet: no button, and nothing a scan would find.
+    let mut m = app(Screen::Tracks);
+    m.navigation.filter = crate::play_options::RECENTLY_PLAYED.into();
+    assert_eq!(ui.rows(&m, &m.library.tracks).len(), 0);
+    assert_eq!(ui.model_action(&mut m, Action::Select), Effect::None);
+    // No storage to read: no button either.
+    let mut m = app(Screen::Albums);
+    m.library.tracks.clear();
+    let sources = std::mem::take(&mut m.sources);
+    assert_eq!(ui.model_action(&mut m, Action::Select), Effect::None);
+    // A scan that did not finish offers Scan for Music again.
+    m.sources = sources;
+    m.library.error = Some("x".into());
+    assert_eq!(ui.model_action(&mut m, Action::Select), Effect::ScanLibrary);
+}
+
+#[test]
 fn filtered_track_context_actions_stay_on_the_selected_track() {
     let mut tracks = library();
     tracks[0].album = "Other".into();
@@ -3672,6 +3741,25 @@ fn now_playing_shows_icons_only_for_options_that_differ_from_the_default_and_nev
         !text.contains("77") && !text.to_lowercase().contains("vol"),
         "{text}"
     );
+}
+
+#[test]
+fn now_playing_shows_the_eq_icon_while_a_headphone_profile_plays() {
+    let ui = radios();
+    let mut m = app(Screen::NowPlaying);
+    let eq = |m: &AppModel| {
+        ui.draw(m, &m.library.tracks, false)
+            .iter()
+            .filter(|q| q.tex == reborn_graphics::Tex::Mask && q.src == maskdata::EQ)
+            .count()
+    };
+    assert_eq!(eq(&m), 0);
+    // An imported profile is on with the five bands off; playback filters the sound by it.
+    let profile = "Filter 1: ON PK Fc 100 Hz Gain 3 dB Q 1\n";
+    m.settings.eq_profile = Some(reborn_core::eq::parse("HD 650", profile).unwrap());
+    m.settings.eq_profile_on = true;
+    assert!(!m.settings.eq_enabled && m.settings.active_eq().is_some());
+    assert_eq!(eq(&m), 1);
 }
 
 #[test]
@@ -4786,6 +4874,31 @@ fn the_album_grid_of_a_genre_is_titled_with_the_genre() {
     m.navigation.filter = "genre:Jazz".into();
     let text = drawn_text(&ui.draw(&m, &tracks, false));
     assert!(text.contains("Jazz") && !text.contains("Albums"), "{text}");
+}
+
+#[test]
+fn a_genres_all_songs_tiles_carry_no_album_line_of_the_whole_library() {
+    let ui = radios();
+    let mut m = app(Screen::Albums);
+    m.settings.album_view = reborn_core::AlbumView::Grid;
+    m.navigation.filter = "genre:Jazz".into();
+    for t in m.library.tracks.iter_mut().take(3) {
+        t.genre = "Jazz".into();
+    }
+    let tracks = m.library.tracks.clone();
+    // All Songs and Shuffle All: the genre's three songs, not the library's nine.
+    for focus in [0, 1] {
+        m.navigation.focus = focus;
+        let text = drawn_text(&ui.draw(&m, &tracks, false));
+        assert!(
+            !text.contains("9 songs") && !text.contains("30 min"),
+            "{text}"
+        );
+    }
+    // An album keeps its line.
+    m.navigation.focus = 2;
+    let text = drawn_text(&ui.draw(&m, &tracks, false));
+    assert!(text.contains("3 songs · 10 min"), "{text}");
 }
 
 fn station(name: &str, uuid: &str) -> reborn_core::RadioStation {
@@ -7266,6 +7379,27 @@ fn up_next_saved_as_a_playlist_holds_its_songs_in_order() {
 }
 
 #[test]
+fn a_button_set_to_up_next_opens_it_on_the_song_playing() {
+    use reborn_core::buttons::Command;
+    let mut ui = radios();
+    let mut m = app(Screen::Home);
+    let tracks = m.library.tracks.clone();
+    m.step(1);
+    m.step(1); // Song 2 plays
+    m.note_played(&tracks[0]);
+    m.note_played(&tracks[1]);
+    assert_eq!(
+        ui.model_action(&mut m, Action::Command(Command::Queue)),
+        Effect::None
+    );
+    assert_eq!(m.screen, Screen::Queue);
+    // The history heading, the two songs played, then the song playing.
+    let rows = ui.rows(&m, &tracks);
+    assert_eq!(rows[m.navigation.focus].label, "Song 2");
+    assert_eq!(m.navigation.focus, 3);
+}
+
+#[test]
 fn up_from_the_first_song_under_a_heading_wraps_when_lists_wrap_everywhere() {
     let mut ui = radios();
     let mut m = app(Screen::NowPlaying);
@@ -7465,6 +7599,33 @@ fn albums_artists_genres_and_search_results_queue_as_a_whole() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// The search's Play All menu for `filter`: its title and song count.
+fn search_play_all_subject(ui: &Ui, m: &mut AppModel, filter: &str) -> (String, String) {
+    m.navigation.filter = filter.into();
+    ui.menu_subject(m, &m.library.tracks, catalog::SEARCH_PLAY_ALL)
+        .unwrap()
+}
+
+#[test]
+fn the_search_play_all_menu_counts_this_search_not_the_last() {
+    let ui = radios();
+    let mut m = app(Screen::Search);
+    m.library.tracks[0].title = "Rain".into();
+    m.library.tracks[1].title = "Rain Again".into();
+    let song = search_play_all_subject(&ui, &mut m, "song");
+    assert_eq!(song.1, "7 songs");
+    let rain = search_play_all_subject(&ui, &mut m, "rain");
+    assert_eq!(rain.1, "2 songs");
+}
+
+#[test]
+fn the_search_play_all_menu_on_see_all_is_named_after_what_was_typed() {
+    let ui = radios();
+    let mut m = app(Screen::Search);
+    let (title, _) = search_play_all_subject(&ui, &mut m, "song\u{1f}songs");
+    assert_eq!(title, "Search “song”");
 }
 
 /// A menu's labels; the menu closes again.
@@ -8102,6 +8263,24 @@ fn playlists_are_found_by_name_and_open_or_play_from_the_results() {
     assert_eq!(
         (m.screen, m.navigation.filter.as_str()),
         (Screen::Search, "road")
+    );
+}
+
+#[test]
+fn the_search_preview_calls_a_playlist_a_playlist() {
+    let (ui, mut m) = playlists_app();
+    let tracks = m.library.tracks.clone();
+    m.screen = Screen::Search;
+    m.navigation.filter = "road".into();
+    let preview = ui.search_preview(&m, &tracks, 3);
+    let road = preview
+        .iter()
+        .find(|r| r.key.starts_with("playlist:"))
+        .unwrap();
+    assert!(
+        road.secondary.starts_with("Playlist · "),
+        "{}",
+        road.secondary
     );
 }
 

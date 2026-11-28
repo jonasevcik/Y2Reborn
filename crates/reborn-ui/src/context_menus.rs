@@ -202,6 +202,22 @@ impl Ui {
         Some(Effect::PlayBook(book.key.clone(), start))
     }
 
+    /// The Sleep Timer picker (#29), from Now Playing's menu or the Quick
+    /// Menu: the wheel chooses, Select starts it, Back leaves the timer as it
+    /// was. It opens on the timer set, else 30 min, so a quick Select never
+    /// turns a running timer off.
+    pub(crate) fn open_sleep_timer(m: &mut AppModel) {
+        let now = m
+            .sleep_timer
+            .map_or(reborn_core::SleepChoice::Minutes(30), |t| t.choice);
+        let focus = reborn_core::SleepChoice::all()
+            .iter()
+            .position(|c| *c == now)
+            .unwrap_or(0);
+        Self::open_modal(m, Modal::SleepTimer);
+        m.navigation.modal_focus = focus;
+    }
+
     pub(crate) fn context_action(
         &mut self,
         m: &mut AppModel,
@@ -223,17 +239,7 @@ impl Ui {
             return Effect::None;
         }
         if menu_key == "sleep_timer" {
-            // A picker (#29): the wheel chooses, Select starts it, Back leaves
-            // the timer as it was. It opens on the timer set, else 30 min.
-            let now = m
-                .sleep_timer
-                .map_or(reborn_core::SleepChoice::Minutes(30), |t| t.choice);
-            let focus = reborn_core::SleepChoice::all()
-                .iter()
-                .position(|c| *c == now)
-                .unwrap_or(0);
-            Self::open_modal(m, Modal::SleepTimer);
-            m.navigation.modal_focus = focus;
+            Self::open_sleep_timer(m);
             return Effect::None;
         }
         if menu_key.starts_with("sel_") {

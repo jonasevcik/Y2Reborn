@@ -454,14 +454,18 @@ fn albums_grid(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interact
             Face::R13,
             color::MUTED,
         );
-        let detail = ui.album_detail(m, tracks, &row.key);
-        c.text_center(
-            240.,
-            338. + Face::R11.mid_offset(),
-            &detail,
-            Face::R11,
-            color::DIM,
-        );
+        // Only an album has a year and length line, as in Cover Flow: a
+        // genre's All Songs and Shuffle All counted the whole library there.
+        if row.key.starts_with("album:") {
+            let detail = ui.album_detail(m, tracks, &row.key);
+            c.text_center(
+                240.,
+                338. + Face::R11.mid_offset(),
+                &detail,
+                Face::R11,
+                color::DIM,
+            );
+        }
     }
     letter_bubble(c, ui, m, tracks, focus);
 }
@@ -896,6 +900,9 @@ pub(crate) fn empty(c: &mut Canvas, ui: &Ui, m: &AppModel, interactive: bool) {
     }
 }
 
+/// The empty library's one button; Select on the empty list presses it.
+pub(crate) const SCAN_FOR_MUSIC: &str = "Scan for Music";
+
 pub(crate) fn empty_copy(m: &AppModel) -> (&'static str, &'static str, Option<&'static str>) {
     if m.screen == Screen::Queue {
         return (
@@ -922,7 +929,7 @@ pub(crate) fn empty_copy(m: &AppModel) -> (&'static str, &'static str, Option<&'
         return (
             "Scan Didn't Finish",
             "Your existing music was kept. Scan again to finish.",
-            Some("Scan for Music"),
+            Some(SCAN_FOR_MUSIC),
         );
     }
     let filter = m.navigation.filter.as_str();
@@ -942,7 +949,7 @@ pub(crate) fn empty_copy(m: &AppModel) -> (&'static str, &'static str, Option<&'
     (
         "No Music Yet",
         "Connect Y2 to a computer and copy songs to Internal Storage or the SD card.",
-        Some("Scan for Music"),
+        Some(SCAN_FOR_MUSIC),
     )
 }
 

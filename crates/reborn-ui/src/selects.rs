@@ -427,6 +427,36 @@ impl Ui {
             }
             return c.rows.iter().filter_map(catalog::Row::track).collect();
         }
+        if m.screen == Screen::Artist {
+            // The artist's songs album by album as the page lists them
+            // (Customize > Browsing > Artist's Albums), each album in its own
+            // order. Library order put the albums A to Z and a guest's
+            // "feat." song after all the others.
+            let mut c = self.catalog.borrow_mut();
+            self.ensure_catalog(&mut c, m, tracks);
+            let albums: Vec<(&str, &str)> = c
+                .rows
+                .iter()
+                .filter_map(|row| {
+                    let catalog::Row::Item(item) = row else {
+                        return None;
+                    };
+                    album_parts(&item.key).map(|(artist, album, _)| (artist, album))
+                })
+                .collect();
+            let mut songs: Vec<usize> = (0..tracks.len())
+                .filter(|&i| track_matches(&tracks[i], &m.navigation.filter))
+                .collect();
+            songs.sort_by_cached_key(|&i| {
+                let t = &tracks[i];
+                let album = (t.album_artist.as_str(), t.album.as_str());
+                (
+                    albums.iter().position(|a| *a == album),
+                    catalog::album_order(t),
+                )
+            });
+            return songs;
+        }
         if m.screen == Screen::Videos {
             // Next and Previous go to the films that play.
             return crate::views_videos::films(tracks)

@@ -215,7 +215,13 @@ impl Ui {
                     Self::home(m);
                     Effect::None
                 }
-                s if Self::is_catalog(s) && !m.library.scanning => Effect::ScanLibrary,
+                // Select presses the button the empty list shows. Nothing Played
+                // Yet, no readable storage and a scan running show none.
+                s if Self::is_catalog(s)
+                    && views_library::empty_copy(m).2 == Some(views_library::SCAN_FOR_MUSIC) =>
+                {
+                    Effect::ScanLibrary
+                }
                 _ => Effect::None,
             };
         }

@@ -187,7 +187,10 @@ pub fn logo_tile(fitted: &[u8]) -> Option<Vec<u8>> {
             let sx = centre + (x as f32 - centre) / scale;
             let sy = centre + (y as f32 - centre) / scale;
             let mut px = [0f32; 4];
-            if (0.0..(n - 1) as f32).contains(&sx) && (0.0..(n - 1) as f32).contains(&sy) {
+            // The last column and row are inside too (a picture reaches the
+            // edge at scale 1); their neighbour past the edge is themselves.
+            let inside = 0.0..=(n - 1) as f32;
+            if inside.contains(&sx) && inside.contains(&sy) {
                 let (ix, iy) = (sx as usize, sy as usize);
                 let (fx, fy) = (sx - ix as f32, sy - iy as f32);
                 for (dx, dy, w) in [
@@ -196,7 +199,7 @@ pub fn logo_tile(fitted: &[u8]) -> Option<Vec<u8>> {
                     (0, 1, (1. - fx) * fy),
                     (1, 1, fx * fy),
                 ] {
-                    let i = ((iy + dy) * n + ix + dx) * 4;
+                    let i = ((iy + dy).min(n - 1) * n + (ix + dx).min(n - 1)) * 4;
                     let a = fitted[i + 3] as f32;
                     for c in 0..3 {
                         px[c] += w * fitted[i + c] as f32 * a / 255.;
@@ -245,6 +248,16 @@ mod logo_tests {
         let photo = fitted(|x, y| [(x * 255 / 160) as u8, (y * 255 / 160) as u8, 90, 255]);
         let tile = logo_tile(&photo).unwrap();
         assert_eq!(&tile[0..3], &photo[0..3], "drawn to the corner, not shrunk");
+    }
+    #[test]
+    fn a_picture_logo_reaches_its_last_column_and_row() {
+        // They were left out of the sample: a dark line along the right and bottom edges.
+        let photo = fitted(|x, y| [(x * 255 / 160) as u8, (y * 255 / 160) as u8, 90, 255]);
+        let tile = logo_tile(&photo).unwrap();
+        for (x, y) in [(N - 1, 0), (0, N - 1), (N - 1, N - 1)] {
+            let i = (y * N + x) * 4;
+            assert_eq!(&tile[i..i + 3], &photo[i..i + 3], "({x}, {y})");
+        }
     }
     #[test]
     fn a_transparent_logo_sits_on_a_contrasting_tile() {

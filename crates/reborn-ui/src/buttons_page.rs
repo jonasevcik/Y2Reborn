@@ -461,7 +461,14 @@ impl Ui {
                 Self::close_modal(m);
             }
             match place {
-                Some(screen) => Self::go(m, screen, ""),
+                Some(screen) => {
+                    Self::go(m, screen, "");
+                    // Up Next opens on the song playing, as from Now Playing's
+                    // menu, not on the oldest song of the history.
+                    if screen == Screen::Queue {
+                        self.open_up_next(m, tracks);
+                    }
+                }
                 None => self.open_library_search(m, tracks),
             }
             return Effect::None;

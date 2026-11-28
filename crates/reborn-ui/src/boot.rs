@@ -347,14 +347,24 @@ pub const fn shutdown_plan(low_battery: bool) -> ShutdownPlan {
 
 /// Shrink `quads` about the screen centre.
 fn recede(quads: &[Quad], scale: f32) -> Vec<Quad> {
+    let about = |[x, y]: [f32; 2]| [240. + (x - 240.) * scale, 180. + (y - 180.) * scale];
     quads
         .iter()
-        .map(|q| Quad {
-            x: 240. + (q.x - 240.) * scale,
-            y: 180. + (q.y - 180.) * scale,
-            w: q.w * scale,
-            h: q.h * scale,
-            ..q.clone()
+        .map(|q| {
+            let [x, y] = about([q.x, q.y]);
+            let mut q = Quad {
+                x,
+                y,
+                w: q.w * scale,
+                h: q.h * scale,
+                ..q.clone()
+            };
+            // A warped quad (Cover Flow's shelf, the wave) is drawn from its
+            // corners, not its box: they recede too, as `motion::shift` moves them.
+            if let Some(warp) = q.warp.as_mut() {
+                warp.corners = warp.corners.map(about);
+            }
+            q
         })
         .collect()
 }
@@ -613,6 +623,23 @@ mod tests {
         let last = boot_transition(ui, 1. / f32::from(BOOT_FADE_FRAMES));
         assert!(cover(&last) < 30 && glyph_alpha(&last, 0) < 30);
         assert_eq!(glyph_alpha(&last, 6), 0);
+    }
+
+    #[test]
+    fn the_recede_shrinks_warped_quads_with_the_rest() {
+        // Cover Flow's shelf and the wave draw from their corners, not their box.
+        let mut quad = Quad::rect(40., 60., 100., 80., color::TEXT);
+        quad.warp = Some(reborn_graphics::Warp {
+            corners: [[40., 60.], [140., 60.], [140., 140.], [40., 140.]],
+            colors: [color::TEXT; 4],
+        });
+        let receded = recede(&[quad], 0.5);
+        let q = &receded[0];
+        assert_eq!((q.x, q.y, q.w, q.h), (140., 120., 50., 40.));
+        assert_eq!(
+            q.warp.map(|w| w.corners),
+            Some([[140., 120.], [190., 120.], [190., 160.], [140., 160.]])
+        );
     }
 
     #[test]

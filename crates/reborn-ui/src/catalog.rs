@@ -609,7 +609,7 @@ impl Catalog {
                     });
                 }
                 if m.screen == Screen::Album {
-                    ids.sort_by_key(|(_, t)| (t.disc, t.track, t.filename.as_str()));
+                    ids.sort_by_key(|(_, t)| album_order(t));
                 }
                 // An album opened from a genre shows that genre's songs and
                 // offers the whole album at the end (#50).
@@ -818,6 +818,10 @@ fn shown_artist<'a>(album_artist: &'a str, t: &'a Track) -> &'a str {
 /// the year in its own line, Y2Reborn #73).
 pub(crate) fn album_artist(t: &Track) -> std::borrow::Cow<'_, str> {
     crate::names_or_unknown(shown_artist(&t.album_artist, t))
+}
+/// Where a song stands on its album's page: by disc, track, then file name.
+pub(crate) fn album_order(t: &Track) -> (u32, u32, &str) {
+    (t.disc, t.track, t.filename.as_str())
 }
 /// An album row: its artist, and its year when known (Y2Reborn #66).
 fn album_item(album: &str, artist: &str, index: usize, t: &Track, year: u16) -> Item {

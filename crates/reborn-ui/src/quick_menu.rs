@@ -152,7 +152,7 @@ impl Ui {
                 self.run_command(m, &[], reborn_core::buttons::Command::RebornDefault)
             }
             "quick:sleep" => {
-                Self::open_modal(m, Modal::SleepTimer);
+                Self::open_sleep_timer(m);
                 Effect::None
             }
             "quick:restart" => {

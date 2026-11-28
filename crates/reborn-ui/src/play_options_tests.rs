@@ -118,3 +118,41 @@ fn shuffle_all_on_songs_plays_every_song_shuffled() {
     }
     assert_eq!(m.screen, Screen::NowPlaying);
 }
+
+#[test]
+fn play_all_on_an_artist_plays_the_albums_in_the_pages_order() {
+    // The library's own order: by artist tag, then album title, so a guest's
+    // song follows the others and the newer album comes first.
+    let song = |artist: &str, album: &str, year, track| Track {
+        path: format!("/m/{album}/{track}.flac").into(),
+        filename: format!("{track}.flac"),
+        title: format!("{album} {track}"),
+        artist: artist.into(),
+        album_artist: "Ann".into(),
+        album: album.into(),
+        year,
+        track,
+        online: true,
+        ..Default::default()
+    };
+    let tracks = vec![
+        song("Ann", "Bright", 2005, 1),
+        song("Ann", "Bright", 2005, 2),
+        song("Ann", "Old Days", 1990, 1),
+        song("Ann", "Old Days", 1990, 3),
+        song("Ann feat. Bo", "Old Days", 1990, 2),
+    ];
+    let mut ui = Ui::default();
+    let mut m = AppModel {
+        screen: Screen::Artist,
+        ..Default::default()
+    };
+    m.navigation.filter = "artist:Ann".into();
+    let rows = ui.catalog_rows(&m, &tracks);
+    let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+    assert_eq!(labels, ["Play All", "Old Days", "Bright"], "oldest first");
+    match ui.select_row(&mut m, &tracks, PLAY_ALL) {
+        Effect::PlayCollection { members, .. } => assert_eq!(members, [2, 4, 3, 0, 1]),
+        other => panic!("{other:?}"),
+    }
+}

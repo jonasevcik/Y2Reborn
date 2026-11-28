@@ -782,6 +782,23 @@ fn a_skins_heart_follows_the_song_playing_and_the_library() {
 }
 
 #[test]
+fn the_eq_flag_is_on_while_a_headphone_profile_plays() {
+    let screens = r##"{"now_playing": [
+  {"type": "text", "if": "eq", "x": 0, "y": 300, "w": 480, "h": 30, "text": "Equalizer"}
+]}"##;
+    let ui = skinned(compile_test(screens).unwrap());
+    let tracks = library(4);
+    let mut m = model(Screen::NowPlaying);
+    m.queue = tracks.clone();
+    let text = |m: &AppModel| crate::tests::drawn_text(&ui.draw(m, &tracks, false));
+    assert!(!text(&m).contains("Equalizer"));
+    let profile = "Filter 1: ON PK Fc 100 Hz Gain 3 dB Q 1\n";
+    m.settings.eq_profile = Some(reborn_core::eq::parse("HD 650", profile).unwrap());
+    m.settings.eq_profile_on = true;
+    assert!(text(&m).contains("Equalizer"), "{}", text(&m));
+}
+
+#[test]
 fn indicators_show_charging_and_the_radios_right_to_left_and_close_up() {
     // Y2Linux #70, #73: skins showed only the battery and the clock.
     let screens = r##"{"now_playing": [

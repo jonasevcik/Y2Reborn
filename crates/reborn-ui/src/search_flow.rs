@@ -243,6 +243,9 @@ impl Ui {
                     }
                     _ if item.key.starts_with("artist:") => format!("Artist · {}", item.secondary),
                     _ if item.key.starts_with("album:") => format!("Album · {}", item.secondary),
+                    _ if item.key.starts_with("playlist:") => {
+                        format!("Playlist · {}", item.secondary)
+                    }
                     _ if item.secondary == "Audiobook" => item.secondary,
                     _ => format!("Audiobook · {}", item.secondary),
                 };

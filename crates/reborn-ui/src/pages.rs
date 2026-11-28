@@ -1007,8 +1007,9 @@ fn system(ui: &Ui, m: &AppModel) -> Page {
             "storage",
             free_text(&s.storage.internal).unwrap_or_default(),
         ),
-        row("Software Update", "update", update_summary(m)),
-        row("About", "about", reborn_core::VERSION),
+        // Software Update is System's sub-page (9.2.10); "update" opens System.
+        row("Software Update", "software_update", update_summary(m)),
+        row("About", "about", short_version(reborn_core::VERSION)),
         row("Reset & Maintenance", "maintenance", ""),
         row(
             "Diagnostics",

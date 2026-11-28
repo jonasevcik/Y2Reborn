@@ -331,7 +331,9 @@ fn status_icons(c: &mut Canvas, m: &AppModel, x: f32, cy: f32, accent: u32) {
     if s.crossfade_ms > 0 {
         icons.push(Icon::Crossfade);
     }
-    if s.eq_enabled {
+    // As playback filters the sound: an imported headphone profile is on
+    // with the five bands off.
+    if s.active_eq().is_some() {
         icons.push(Icon::Eq);
     }
     if s.replay_gain != reborn_core::ReplayGainMode::Off {

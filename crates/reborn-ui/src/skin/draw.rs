@@ -115,7 +115,8 @@ impl Scene<'_> {
             Flag::Empty => self.row_count() == 0,
             Flag::Error => self.message.is_some_and(|(_, e)| e),
             Flag::Danger => self.sheet.as_ref().is_some_and(|s| s.danger),
-            Flag::Eq => s.eq_enabled,
+            // A headphone profile too, as playback and Reborn's own Now Playing.
+            Flag::Eq => s.active_eq().is_some(),
             Flag::Gapless => s.gapless_enabled,
             Flag::Crossfade => s.crossfade_ms > 0,
             Flag::Normalise => s.replay_gain != reborn_core::ReplayGainMode::Off,

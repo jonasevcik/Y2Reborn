@@ -29,8 +29,9 @@ struct Artist {
 pub struct Index {
     stamp: Option<(usize, usize)>,
     artists: Vec<Artist>,
-    /// (track standing for the album, album and album artist folded).
-    albums: Vec<(usize, String)>,
+    /// (the album's tracks, the first standing for it; album and album
+    /// artist folded).
+    albums: Vec<(Vec<u32>, String)>,
     /// (track, title, artist and album folded).
     songs: Vec<(usize, String)>,
     cache: Vec<(String, Matches)>,
@@ -123,7 +124,8 @@ impl Index {
         // Artists: name -> (cover track, albums).
         type Entry<'a> = (usize, std::collections::BTreeSet<&'a str>, Vec<u32>);
         let mut artists: BTreeMap<&str, Entry> = BTreeMap::new();
-        let mut albums: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+        // Albums: (album, album artist) -> (first track, tracks).
+        let mut albums: BTreeMap<(&str, &str), (usize, Vec<u32>)> = BTreeMap::new();
         for (i, t) in tracks.iter().enumerate() {
             // One artist per name of a joined or "feat." tag (#38).
             for artist in t.artists().into_iter().filter(|a| !a.is_empty()) {
@@ -139,7 +141,9 @@ impl Index {
             if !t.album.is_empty() {
                 albums
                     .entry((t.album.as_str(), t.album_artist.as_str()))
-                    .or_insert(i);
+                    .or_insert((i, vec![]))
+                    .1
+                    .push(i as u32);
             }
         }
         self.artists = artists
@@ -154,22 +158,25 @@ impl Index {
             .collect();
         self.artists
             .sort_by_cached_key(|a| sort_key_folded(a.folded.clone(), SortAs::Artist));
-        let mut albums: Vec<(usize, String)> = albums
+        let mut albums: Vec<(usize, Vec<u32>, String)> = albums
             .into_values()
-            .map(|i| {
+            .map(|(i, members)| {
                 let t = &tracks[i];
                 let owner = if t.album_artist.is_empty() {
                     names[folded[i].1].clone()
                 } else {
                     fold(&t.album_artist)
                 };
-                (i, format!("{} {owner}", names[folded[i].2]))
+                (i, members, format!("{} {owner}", names[folded[i].2]))
             })
             .collect();
-        albums.sort_by_cached_key(|(i, _)| {
+        albums.sort_by_cached_key(|(i, _, _)| {
             sort_key_folded(names[folded[*i].2].clone(), SortAs::Title)
         });
-        self.albums = albums;
+        self.albums = albums
+            .into_iter()
+            .map(|(_, members, name)| (members, name))
+            .collect();
         let mut songs: Vec<(usize, String)> = folded
             .iter()
             .enumerate()
@@ -199,11 +206,19 @@ impl Index {
                 .filter(|a| online(a.art) || a.tracks.iter().any(|&i| online(i as usize)))
                 .map(|a| (a.name.clone(), a.art, a.albums))
                 .collect(),
+            // An album stands as its first song that plays, as an artist is
+            // kept while any of its songs is online: a stale offline copy
+            // sorted first (`playlist_index`) hid the album.
             albums: found
                 .albums
                 .iter()
-                .map(|&a| self.albums[a as usize].0)
-                .filter(|&i| online(i))
+                .filter_map(|&a| {
+                    self.albums[a as usize]
+                        .0
+                        .iter()
+                        .map(|&i| i as usize)
+                        .find(|&i| online(i))
+                })
                 .collect(),
             songs: found
                 .songs
@@ -365,6 +380,19 @@ mod tests {
             Index::default().search(&tracks, "yes").summary(),
             "No matches"
         );
+    }
+
+    #[test]
+    fn an_album_is_found_while_any_of_its_songs_is_online() {
+        // A stale offline copy of a card's songs sorts first (`playlist_index`):
+        // the album stands as the copy that plays.
+        let mut tracks = vec![
+            track("Help!", "The Beatles", "Help!"),
+            track("Help!", "The Beatles", "Help!"),
+        ];
+        tracks[0].online = false;
+        let r = Index::default().search(&tracks, "help");
+        assert_eq!((r.albums, r.songs), (vec![1], vec![1]));
     }
 }
 

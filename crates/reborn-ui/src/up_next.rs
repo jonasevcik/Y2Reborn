@@ -654,7 +654,8 @@ impl Ui {
     /// What a group is called (the menu's title, Up Next's source).
     pub(crate) fn group_label(m: &AppModel, key: &str) -> String {
         if key == crate::catalog::SEARCH_PLAY_ALL {
-            return format!("Search “{}”", m.navigation.filter.trim());
+            // As the search page names it: what was typed, without See All's section.
+            return crate::source_label(m);
         }
         if let Some(plain) = key.strip_prefix("album:") {
             let album = crate::album_parts(key).map_or(plain, |(_, a, _)| a);
@@ -720,13 +721,20 @@ impl Ui {
             return Some((crate::components::count(n, "Song", "Songs"), String::new()));
         }
         if Self::group_key(key) {
-            // Counted once per menu, not on every frame it is drawn.
+            // Counted once per menu, not on every frame it is drawn. The
+            // search's Play All has one key for every search: its count is
+            // kept under what was searched, or "rain" showed "love"'s count.
             let library = crate::library_stamp(tracks);
+            let counted: std::borrow::Cow<str> = if key == crate::catalog::SEARCH_PLAY_ALL {
+                format!("{key}\u{1f}{}", m.navigation.filter).into()
+            } else {
+                key.into()
+            };
             let cached = self
                 .group_count
                 .borrow()
                 .as_ref()
-                .filter(|(l, k, _)| *l == library && k == key)
+                .filter(|(l, k, _)| *l == library && k == &*counted)
                 .map(|(_, _, n)| *n);
             let n = match cached {
                 Some(n) => n,
@@ -738,7 +746,7 @@ impl Ui {
                     } else {
                         self.group_members(m, tracks, key).len()
                     };
-                    *self.group_count.borrow_mut() = Some((library, key.to_owned(), n));
+                    *self.group_count.borrow_mut() = Some((library, counted.into_owned(), n));
                     n
                 }
             };
