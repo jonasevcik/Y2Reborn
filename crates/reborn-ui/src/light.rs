@@ -10,15 +10,16 @@
 //! - the remaining bright colours (a cover's accent, a status colour) are darkened until they
 //!   read on the light background (4.5:1);
 //! - translucent black (shadows, halos, scrims) is softer: 40 % of its alpha.
-use crate::theme::color;
+use crate::{components::FOCUS_OVER_BG, theme::color};
 use reborn_graphics::{Quad, Tex};
+use std::sync::OnceLock;
 
 /// The light look's background and accent.
 pub const BG: u32 = 0xF3F4F6FF;
 pub const ACCENT: u32 = 0x2563D9FF;
 
 /// The dark look's tokens and their light counterparts (RGB; alpha is kept).
-const TOKENS: [(u32, u32); 11] = [
+const TOKENS: [(u32, u32); 12] = [
     (color::BG, BG),
     (color::TEXT, 0x15171CFF),
     (color::MUTED, 0x50555FFF),
@@ -30,10 +31,14 @@ const TOKENS: [(u32, u32); 11] = [
     (color::SHEET, 0xFFFFFFFF),
     (color::RING_TRACK, 0xD5D8DEFF),
     (color::ON_ACCENT, 0xFFFFFFFF),
+    // The corners of a round artist picture on the focus row: the row's glass in the light look
+    // (0x00000019) over BG, as the row itself shows. Turned around as a grey, they were darker.
+    (FOCUS_OVER_BG, 0xDBDCDEFF),
 ];
 
 /// Recolour a finished frame for the light look.
 pub fn apply(frame: &mut [Quad]) {
+    let mut memo = Memo::EMPTY;
     for quad in frame {
         if !matches!(
             quad.tex,
@@ -41,9 +46,34 @@ pub fn apply(frame: &mut [Quad]) {
         ) {
             continue;
         }
-        quad.color = light(quad.color);
+        quad.color = memo.light(quad.color);
         if let Some(warp) = quad.warp.as_mut() {
-            warp.colors = warp.colors.map(light);
+            warp.colors = warp.colors.map(|c| memo.light(c));
+        }
+    }
+}
+
+/// The colours of one frame, each worked out once. A frame has a few dozen colours over hundreds
+/// of quads (Now Playing's wave alone is two colours over up to 640 warped quads, each with
+/// five), and a bright colour takes dozens of steps of `readable`: worked out quad by quad, that
+/// was an estimated 100k `powf` a frame, 29 frames a second while music plays.
+struct Memo([Option<(u32, u32)>; 64]);
+
+impl Memo {
+    const EMPTY: Self = Self([None; 64]);
+
+    /// `light`, worked out on a colour's first use. The top six bits of the colour's Fibonacci
+    /// hash pick its slot of the 64, which spreads near colours apart; two colours on one slot
+    /// take turns.
+    fn light(&mut self, rgba: u32) -> u32 {
+        let slot = &mut self.0[(rgba.wrapping_mul(0x9E37_79B9) >> 26) as usize];
+        match *slot {
+            Some((from, to)) if from == rgba => to,
+            _ => {
+                let to = light(rgba);
+                *slot = Some((rgba, to));
+                to
+            }
         }
     }
 }
@@ -79,7 +109,8 @@ pub fn light(rgba: u32) -> u32 {
 
 /// The highest lightness at or below `l` with 4.5:1 on the light background.
 fn readable(h: f32, s: f32, mut l: f32) -> f32 {
-    let bg = luminance(BG);
+    static BG_LUMINANCE: OnceLock<f32> = OnceLock::new();
+    let bg = *BG_LUMINANCE.get_or_init(|| luminance(BG));
     while l > 0.05 {
         let lum = luminance(from_hsl(h, s, l) | 0xFF);
         if (bg + 0.05) / (lum + 0.05) >= 4.5 {

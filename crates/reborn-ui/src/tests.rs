@@ -5871,6 +5871,28 @@ fn motion_waves_while_playing_slides_screens_and_glides_focus() {
 }
 
 #[test]
+fn the_screen_kept_for_a_slide_reuses_its_buffer() {
+    // The last frame is kept for a slide on every redraw, while the screen changes only now and
+    // then: Now Playing's 500-800 quads were copied into a new buffer 29 times a second.
+    let ui = Ui {
+        ui_motion: true,
+        ..radios()
+    };
+    let m = app(Screen::Tracks);
+    let quad = reborn_graphics::Quad::rect(0., 0., 1., 1., theme::color::TEXT);
+    ui.slide_screens(&m, vec![quad.clone(); 100]);
+    assert_eq!(ui.slide_screens(&m, vec![quad; 10]).len(), 10);
+    let seen = ui.seen.borrow();
+    let kept = &seen.as_ref().unwrap().3;
+    assert_eq!(kept.len(), 10, "the last frame is kept");
+    assert!(
+        kept.capacity() >= 100,
+        "in the same buffer: {}",
+        kept.capacity()
+    );
+}
+
+#[test]
 fn the_shown_position_runs_on_for_a_track_without_a_length() {
     // A stream has no duration (0): the position moved on from the last
     // report was clamped to 1 ms, so the elapsed time sat at 0:00.

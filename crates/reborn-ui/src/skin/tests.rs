@@ -507,6 +507,36 @@ fn every_theme_grey_takes_the_skins_colour() {
     assert_eq!(got, [p.text, p.muted, p.dim]);
 }
 
+/// Round artist pictures (Artists, Search) mask their corners in the colour of what is under
+/// them; on the focus row, in a skin that leaves the screen to Reborn, that is the skin's glass
+/// over its background, not Reborn's own dark grey.
+#[test]
+fn round_artist_pictures_take_the_skins_focus_row_at_their_corners() {
+    use crate::components::{FOCUS_FILL, FOCUS_OVER_BG};
+    let corners = |p: &super::Palette| {
+        let mut c = crate::canvas::Canvas::default();
+        for colour in [FOCUS_FILL, FOCUS_OVER_BG] {
+            c.draw
+                .push(reborn_graphics::Quad::rect(0., 0., 1., 1., colour));
+        }
+        remap(&mut c, 0, p, 0x2A69_D2FF);
+        let row = c.draw[0].color;
+        let over = theme::mix(p.bg, row, (row & 0xFF) as f32 / 255.);
+        (c.draw[1].color, over)
+    };
+    let (corner, row) = corners(&super::Palette {
+        bg: 0xFFE4_EFFF,
+        glass: 0x6B24_50FF,
+        ..super::Palette::default()
+    });
+    assert_eq!(corner, row);
+    // Reborn's own palette keeps Reborn's own colour.
+    assert_eq!(
+        corners(&super::Palette::default()),
+        (FOCUS_OVER_BG, FOCUS_OVER_BG)
+    );
+}
+
 #[test]
 fn without_a_skin_nothing_changes() {
     let ui = Ui::default();

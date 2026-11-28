@@ -1032,7 +1032,12 @@ pub(crate) fn draw_layout(c: &mut Canvas, s: &Scene, layout: &[Node]) {
 /// The greys come from the theme, so a new value there stays recoloured
 /// (9.2.3's brighter greys were not, and stayed light on light skins, Y2Reborn #76).
 pub(crate) fn remap(c: &mut Canvas, start: usize, p: &Palette, accent: u32) {
-    let table: [(u32, u32); 16] = [
+    // A colour's opacity in the skin: its own, times its role's.
+    let opacity = |a: u32, to: u32| (a * (to & 0xFF) + 127) / 255;
+    // The focus row's glass as the skin paints it, over its background: what is under the
+    // corners of a round artist picture on that row (`components::round_cover`).
+    let focus = opacity(components::FOCUS_FILL & 0xFF, p.glass) as f32 / 255.;
+    let table: [(u32, u32); 17] = [
         (0x06070A, p.bg),
         (0x000000, p.scrim),
         (0xF6F6F8, p.text),
@@ -1049,6 +1054,10 @@ pub(crate) fn remap(c: &mut Canvas, start: usize, p: &Palette, accent: u32) {
         (0xFF7864, p.danger),
         (0x3CC878, p.success),
         (0xFFBE3C, p.warning),
+        (
+            components::FOCUS_OVER_BG >> 8,
+            crate::theme::mix(p.bg, p.glass, focus),
+        ),
     ];
     let default_accent = color::ACCENT >> 8;
     let map = |c: u32| -> u32 {
@@ -1064,7 +1073,7 @@ pub(crate) fn remap(c: &mut Canvas, start: usize, p: &Palette, accent: u32) {
                 .map(|(_, to)| *to)
         };
         match to {
-            Some(to) => (to & 0xFFFF_FF00) | ((a * (to & 0xFF) + 127) / 255),
+            Some(to) => (to & 0xFFFF_FF00) | opacity(a, to),
             None => c,
         }
     };

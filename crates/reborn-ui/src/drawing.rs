@@ -5,17 +5,19 @@ impl Ui {
     pub fn draw(&self, m: &AppModel, tracks: &[Track], has_art: bool) -> Vec<Quad> {
         self.motion.begin_frame();
         glyph_cache::begin_frame();
-        let frame = screens::draw(self, m, tracks, has_art);
+        let mut frame = screens::draw(self, m, tracks, has_art);
         self.flow.borrow_mut().end_frame();
-        let mut frame = if self.ui_motion {
+        // Each screen is recoloured before the slide keeps it, so a slide into or out of a film
+        // recolours only the other screen.
+        if self.light && self.skin.is_none() && !screens::film_playing(m) {
+            crate::light::apply(&mut frame);
+        }
+        let frame = if self.ui_motion {
             self.slide_screens(m, frame)
         } else {
             frame
         };
         glyph_cache::end_frame(&frame);
-        if self.light && self.skin.is_none() {
-            crate::light::apply(&mut frame);
-        }
         frame
     }
 
@@ -30,6 +32,9 @@ impl Ui {
         );
         {
             let mut seen = self.seen.borrow_mut();
+            // The buffer the last frame was kept in, for this one unless a slide takes it: a
+            // frame is kept on every redraw and the screen changes only now and then.
+            let mut kept = Vec::new();
             if let Some((screen, filter, depth, old)) = seen.take() {
                 // Typing changes the search page's text, not the page; a
                 // section shown alone (See All) is a page of its own.
@@ -44,9 +49,12 @@ impl Ui {
                         push: here.2 >= depth,
                         old,
                     });
+                } else {
+                    kept = old;
                 }
             }
-            *seen = Some((here.0, here.1, here.2, frame.clone()));
+            kept.clone_from(&frame);
+            *seen = Some((here.0, here.1, here.2, kept));
         }
         let mut slide = self.slide.borrow_mut();
         let Some(s) = slide.as_ref() else {

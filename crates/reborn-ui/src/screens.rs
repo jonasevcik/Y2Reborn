@@ -271,9 +271,10 @@ pub(crate) fn skin_layout<'s>(
         .map(|(k, l)| (k, l, page))
 }
 
-/// A film on Now Playing: the picture on black, the same in every skin (Y2Reborn #131: a skin's
-/// Now Playing layout has no picture, and its palette would tint the film).
-fn film_playing(m: &AppModel) -> bool {
+/// A film on Now Playing: the picture on black, the same in every skin and in Reborn Light
+/// (Y2Reborn #131: a skin's Now Playing layout has no picture, and its palette would tint the
+/// film; Light made the black a grey and the subtitles dark).
+pub(crate) fn film_playing(m: &AppModel) -> bool {
     m.screen == Screen::NowPlaying && m.current().is_some_and(Track::is_video)
 }
 

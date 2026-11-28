@@ -73,3 +73,134 @@ fn only_flat_colours_type_and_icons_change() {
     assert_eq!(frame[2].color, color::TEXT);
     assert_eq!(frame[3].color, 0x15171CFF);
 }
+
+#[test]
+fn each_colour_of_a_frame_is_worked_out_once_as_before() {
+    // Every kind of colour: the tokens down to clear, glass, shadows, greys, bright cover
+    // accents, and enough others for colours to share a slot of the memo.
+    let mut colours: Vec<u32> = TOKENS
+        .iter()
+        .flat_map(|(from, _)| [0xFF, 0x80, 0x24, 0].map(|a| *from & !0xFF | a))
+        .collect();
+    colours.extend([
+        color::GLASS,
+        color::RULE,
+        color::SCRIM,
+        0x0000_00FF,
+        0,
+        0xFFB0_4AFF,
+        0xFFB0_4A00,
+        0x2A30_40FF,
+        crate::theme::mix(color::TEXT, color::BG, 0.5),
+    ]);
+    let mut x = 0x1234_5678_u32;
+    colours.extend((0..2000).map(|_| {
+        x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        x
+    }));
+    let mut memo = Memo::EMPTY;
+    for _ in 0..2 {
+        for &c in &colours {
+            assert_eq!(memo.light(c), light(c), "{c:08X}");
+        }
+    }
+    // A colour once worked out is taken from the memo, not worked out again.
+    let mut memo = Memo::EMPTY;
+    memo.light(0xFFB0_4AFF);
+    for slot in memo.0.iter_mut().flatten() {
+        slot.1 = 0x0102_03FF;
+    }
+    assert_eq!(memo.light(0xFFB0_4AFF), 0x0102_03FF);
+    // Now Playing's wave in a cover's colour, its feathered edges clear: recoloured as before.
+    let mut c = crate::canvas::Canvas::default();
+    crate::components::wave_progress(
+        &mut c,
+        16.,
+        300.,
+        448.,
+        0.9,
+        0xFFB0_4AFF,
+        0.,
+        3.6,
+        true,
+        None,
+    );
+    let mut frame = c.draw;
+    assert!(frame.iter().filter(|q| q.warp.is_some()).count() > 400);
+    let shown = |frame: &[Quad]| -> Vec<(u32, Option<[u32; 4]>)> {
+        frame
+            .iter()
+            .map(|q| (q.color, q.warp.map(|w| w.colors)))
+            .collect()
+    };
+    let before: Vec<_> = shown(&frame)
+        .into_iter()
+        .map(|(c, w)| (light(c), w.map(|w| w.map(light))))
+        .collect();
+    apply(&mut frame);
+    assert_eq!(shown(&frame), before);
+}
+
+#[test]
+fn round_artist_pictures_have_the_focus_rows_colour_at_their_corners() {
+    use crate::components::{FOCUS_FILL, FOCUS_OVER_BG};
+    // The corners take the focus row's glass over the page: in the dark look…
+    let over = |glass: u32, page: u32| crate::theme::mix(page, glass, (glass & 0xFF) as f32 / 255.);
+    assert_eq!(over(FOCUS_FILL, color::BG), FOCUS_OVER_BG);
+    // …and in the light one, with no darker wedges on the row.
+    assert_eq!(light(FOCUS_OVER_BG), over(light(FOCUS_FILL), BG));
+}
+
+/// A film on Now Playing keeps the dark look, as it does in a skin (Y2Reborn #131): the picture
+/// on black, white subtitles with a dark edge, and the shade under the title and time line.
+#[test]
+fn a_film_keeps_its_colours() {
+    use reborn_core::{AppModel, PlaybackState, Screen, Track};
+    let film = Track {
+        title: "Holiday".into(),
+        codec: "h264/aac".into(),
+        duration_ms: 125_000,
+        ..Default::default()
+    };
+    let mut m = AppModel {
+        screen: Screen::NowPlaying,
+        ..Default::default()
+    };
+    m.replace_queue(vec![film], 0).unwrap();
+    // Paused: the title, the time line and the shade under them show.
+    m.playback = PlaybackState::Paused;
+    let mut ui = crate::Ui {
+        video: crate::views_videos::VideoPicture {
+            width: 480,
+            height: 270,
+            subtitle: "Where were you?".into(),
+        },
+        ..Default::default()
+    };
+    let colours = |ui: &crate::Ui, m: &AppModel| -> Vec<(u32, Option<[u32; 4]>)> {
+        let frame = ui.draw(m, &[], false);
+        frame
+            .iter()
+            .map(|q| (q.color, q.warp.map(|w| w.colors)))
+            .collect()
+    };
+    let dark = colours(&ui, &m);
+    assert!(dark.contains(&(0x0000_00E0, None)), "the subtitle's edge");
+    ui.light = true;
+    let lit = colours(&ui, &m);
+    assert!(lit.contains(&(0x0000_00FF, None)), "on black");
+    assert_eq!(lit, dark);
+    // A screen sliding out as the film comes in is still in the light look.
+    let ui = crate::Ui {
+        ui_motion: true,
+        light: true,
+        video: ui.video.clone(),
+        ..Default::default()
+    };
+    m.screen = Screen::Home;
+    ui.draw(&m, &[], false);
+    m.screen = Screen::NowPlaying;
+    let sliding = colours(&ui, &m);
+    assert!(sliding.contains(&(BG, None)), "the light page slides out");
+    assert!(sliding.contains(&(0x0000_00FF, None)), "the film's black");
+}
