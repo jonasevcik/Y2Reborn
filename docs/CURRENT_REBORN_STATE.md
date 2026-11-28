@@ -1,5 +1,13 @@
 # Current Reborn state on the Y2
 
+## The player's name (#217)
+
+System › About › **Name** shows the name cars, phones and headphones list the player by and opens the keyboard
+(`Purpose::DeviceName`, up to 32 bytes, `keyboard::DEVICE_NAME_MAX_BYTES` = `radiod::NAME_MAX_BYTES`). Save sends
+`Effect::BluetoothName` → `bluetooth::Command::Name` → the radio daemon's `DeviceName`, which sets BlueZ's adapter
+Alias (kept by BlueZ across restarts and updates); an empty name puts back Y2Linux. The row shows the daemon's
+`State.bluetooth.name`, so a platform without renaming shows no row. A search's hint names the player.
+
 ## Playing a group of songs, in one place; Recently Added, Recently Played, Most Played (#163, #109, #158)
 
 `play_options` (reborn-ui) owns every way a group of songs is played: the header rows (`header_rows`: Play All and

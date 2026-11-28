@@ -518,6 +518,15 @@ impl Ui {
                         self.keyboard = None;
                         self.playlist_named(&purpose, text)
                     }
+                    Purpose::DeviceName => {
+                        // Empty puts back the standard name; the keyboard keeps to the limit.
+                        if text.len() > keyboard::DEVICE_NAME_MAX_BYTES {
+                            self.flash("Names take up to 32 bytes");
+                            return Effect::None;
+                        }
+                        self.keyboard = None;
+                        Effect::BluetoothName(text)
+                    }
                     Purpose::WifiName => {
                         // A name may start or end with a space: keep it as typed.
                         if text.is_empty() {

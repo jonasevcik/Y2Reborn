@@ -20,6 +20,9 @@ use std::{
 };
 use y2p_contract::radiod::{self, Link, Message, Request};
 
+/// The longest name the radio daemon takes for the player, in bytes (#217).
+pub const NAME_MAX_BYTES: usize = radiod::NAME_MAX_BYTES;
+
 use crate::radiod::{ask, send, SOCKET};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -70,6 +73,9 @@ pub struct Status {
     /// The daemon's service state ("ready", "starting", "recovering", "failed", "quiesced").
     #[serde(default)]
     pub service: String,
+    /// The name other devices list the player by; none from a platform without renaming (#217).
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 impl Status {
@@ -246,6 +252,8 @@ pub enum Command {
         device: String,
         on: bool,
     },
+    /// The name other devices list the player by; empty: the standard name (#217).
+    Name(String),
     Stop,
 }
 
@@ -559,6 +567,7 @@ impl Client {
                 address: address(&device)?,
                 on,
             },
+            Command::Name(name) => Request::DeviceName { name },
             Command::Refresh | Command::Stop => return None,
         })
     }
@@ -630,6 +639,7 @@ fn status_from(state: &radiod::Bluetooth) -> Status {
         },
         waiting,
         service: format!("{:?}", state.service).to_ascii_lowercase(),
+        name: state.name.clone(),
     }
 }
 

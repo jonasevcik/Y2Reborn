@@ -57,6 +57,7 @@ Y2Linux platform services → kernel → hardware
 | Wi-Fi on/off, scan, connect, saved connect, forget, disconnect | `wifi::Command::{Power, Scan, Connect, Saved, Forget, Disconnect}` |
 | Bluetooth on/off, scan, pair, connect, disconnect, forget, pairing confirm | `bluetooth::Command::{Power, Scan, Pair, Connect, Disconnect, Forget, Confirm}` |
 | Codec preference | `bluetooth::Command::Codec`; choices from `bluetooth::Status::codec_choices` |
+| The player's Bluetooth name (#217) | `bluetooth::Command::Name` → `radiod::Request::DeviceName`; shown from `bluetooth::Status::name` |
 | Shutdown / restart request and acknowledgement | `power::request_shutdown`, `power::shutdown_intent`, `power::acknowledge_shutdown` |
 | Backlight off/on, brightness | `power::blank`, `power::brightness_available`, `power::set_brightness` |
 | Update check, stage, apply, cancel, rollback | `PlatformTask::Update*` via `client::Client` |

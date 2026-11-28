@@ -152,6 +152,9 @@ fn the_daemons_state_becomes_one_status_and_settling_headphones_wait() {
     assert!(!ready.devices[0].settling && ready.waiting.is_none());
     assert_eq!(ready.playback_rate("12:34:56:78:90:AB").unwrap(), 44_100);
     assert_eq!(ready.service, "ready");
+    assert_eq!(ready.name, None, "a daemon without renaming");
+    state.name = Some("Kitchen Y2".into());
+    assert_eq!(status_from(&state).name.as_deref(), Some("Kitchen Y2"));
 }
 
 #[test]
@@ -203,6 +206,12 @@ fn commands_name_devices_by_address_and_codecs_by_label() {
         Some(Request::BluetoothPower {
             on: false,
             persist: true
+        })
+    );
+    assert_eq!(
+        client.request(Command::Name("Kitchen Y2".into())),
+        Some(Request::DeviceName {
+            name: "Kitchen Y2".into()
         })
     );
 }

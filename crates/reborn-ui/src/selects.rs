@@ -372,6 +372,14 @@ impl Ui {
                 self.keyboard = Some(keyboard::Keyboard::new(keyboard::Purpose::WifiName, ""));
                 Effect::None
             }
+            "device_name" => {
+                let name = self.bluetooth.name.clone().unwrap_or_default();
+                self.keyboard = Some(keyboard::Keyboard::new(
+                    keyboard::Purpose::DeviceName,
+                    &name,
+                ));
+                Effect::None
+            }
             "bt_power" => Effect::BluetoothPower,
             "bt_scan" => Effect::BluetoothScan,
             _ => return None,

@@ -1627,6 +1627,8 @@ pub enum Effect {
         path: String,
         operation: String,
     },
+    /// The name other devices list the player by; empty: the standard name (#217).
+    BluetoothName(String),
     Output(AudioOutput),
     ConfirmPairing(bool),
     ScreenSleep,

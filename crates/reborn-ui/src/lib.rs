@@ -307,6 +307,8 @@ pub struct BluetoothView {
     /// SBC quality is useful even when SBC is the peer's only usable codec.
     pub sbc_quality_available: bool,
     pub problem: Option<String>,
+    /// The name other devices list the player by; none hides System > About > Name (#217).
+    pub name: Option<String>,
 }
 
 /// Settings > Last.fm as the player knows it.

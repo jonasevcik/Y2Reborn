@@ -20,6 +20,10 @@ use crate::{
 };
 use reborn_core::Action;
 
+/// The longest name for the player, in bytes: the radio daemon's limit
+/// (`y2p_contract::radiod::NAME_MAX_BYTES`, checked by the app's tests).
+pub const DEVICE_NAME_MAX_BYTES: usize = 32;
+
 /// What the typed text is for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Purpose {
@@ -40,6 +44,8 @@ pub enum Purpose {
     LastFmPassword {
         username: String,
     },
+    /// The name cars, phones and headphones list the player by (#217).
+    DeviceName,
 }
 
 impl Purpose {
@@ -53,12 +59,16 @@ impl Purpose {
             Self::PlaylistNew | Self::PlaylistRename => 60,
             Self::LastFmUser => 32,
             Self::LastFmPassword { .. } => 64,
+            Self::DeviceName => DEVICE_NAME_MAX_BYTES,
         }
     }
-    /// Wi-Fi limits are in bytes (a 32 byte SSID, a 63 byte passphrase), so an
-    /// accented letter takes two.
+    /// Wi-Fi limits are in bytes (a 32 byte SSID, a 63 byte passphrase), and so is the
+    /// player's Bluetooth name, so an accented letter takes two.
     fn counts_bytes(&self) -> bool {
-        matches!(self, Self::WifiName | Self::WifiPassword { .. })
+        matches!(
+            self,
+            Self::WifiName | Self::WifiPassword { .. } | Self::DeviceName
+        )
     }
     fn secret(&self) -> bool {
         matches!(
@@ -75,6 +85,7 @@ impl Purpose {
             Self::PlaylistRename => "Rename",
             Self::LastFmUser => "Next",
             Self::LastFmPassword { .. } => "Sign In",
+            Self::DeviceName => "Save",
         }
     }
     pub(crate) fn title(&self) -> String {
@@ -88,6 +99,7 @@ impl Purpose {
             Self::PlaylistRename => "Rename Playlist".into(),
             Self::LastFmUser => "Last.fm Username".into(),
             Self::LastFmPassword { .. } => "Last.fm Password".into(),
+            Self::DeviceName => "Name".into(),
         }
     }
     fn prompt(&self) -> String {
@@ -105,6 +117,7 @@ impl Purpose {
             Self::PlaylistNew | Self::PlaylistRename => "Playlist name".into(),
             Self::LastFmUser => "Username".into(),
             Self::LastFmPassword { username } => format!("Password for “{username}”"),
+            Self::DeviceName => "What cars and headphones show (empty: Y2Linux)".into(),
         }
     }
 }
@@ -825,6 +838,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_players_name_takes_32_bytes() {
+        // #217: the radio daemon's limit, in bytes like a network name.
+        let mut k = Keyboard::new(Purpose::DeviceName, "Kitchen");
+        for _ in 0..40 {
+            k.type_char('é');
+        }
+        assert_eq!(k.text.len(), 31, "7 + 12 two-byte letters");
+        k.type_char('x');
+        assert_eq!(k.text.len(), 32);
+        k.type_char('x');
+        assert_eq!(k.text.len(), 32, "full");
+        assert!(!Purpose::DeviceName.secret());
+        assert_eq!(Purpose::DeviceName.done_label(), "Save");
     }
 
     #[test]

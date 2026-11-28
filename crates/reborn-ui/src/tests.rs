@@ -2351,6 +2351,61 @@ fn other_network_joins_a_hidden_network_by_its_name() {
 }
 
 #[test]
+fn about_names_the_player_and_renames_it_with_the_keyboard() {
+    // #217: two players in one car both showed as "Y2Linux".
+    use crate::keyboard::Purpose;
+    let mut ui = radios();
+    let mut m = app(Screen::About);
+    // A platform that does not tell the name (older than renaming) shows no row.
+    assert_eq!(labels(&ui, &m), ["Version", "Licenses"]);
+    ui.bluetooth.name = Some("Y2Linux".into());
+    assert_eq!(labels(&ui, &m), ["Name", "Version", "Licenses"]);
+    assert_eq!(row(&ui, &m, "device_name").secondary, "Y2Linux");
+    select_key(&mut ui, &mut m, "device_name");
+    let k = ui.keyboard.as_ref().expect("the keyboard opens");
+    assert_eq!(
+        (&k.purpose, k.text.as_str()),
+        (&Purpose::DeviceName, "Y2Linux")
+    );
+    // Hold Select is Done: the trimmed name goes to the radio daemon.
+    ui.keyboard.as_mut().unwrap().text = " Kitchen Y2 ".into();
+    assert_eq!(
+        ui.model_action(&mut m, Action::ContextMenu),
+        Effect::BluetoothName("Kitchen Y2".into())
+    );
+    assert!(ui.keyboard.is_none());
+    // Empty asks for the standard name back.
+    select_key(&mut ui, &mut m, "device_name");
+    ui.keyboard.as_mut().unwrap().text.clear();
+    assert_eq!(
+        ui.model_action(&mut m, Action::ContextMenu),
+        Effect::BluetoothName(String::new())
+    );
+}
+
+#[test]
+fn a_name_too_long_for_the_radio_daemon_stays_on_the_keyboard() {
+    let mut ui = radios();
+    ui.bluetooth.name = Some("Y2Linux".into());
+    let mut m = app(Screen::About);
+    select_key(&mut ui, &mut m, "device_name");
+    // Typed keys stop at 32 bytes; text set another way is still checked on Done.
+    ui.keyboard.as_mut().unwrap().text = "é".repeat(17);
+    assert_eq!(ui.model_action(&mut m, Action::ContextMenu), Effect::None);
+    assert!(ui.keyboard.is_some(), "kept for a shorter name");
+}
+
+#[test]
+fn a_search_says_which_name_a_car_finds() {
+    let mut ui = radios();
+    ui.bluetooth.scan = reborn_core::RadioScan::Scanning;
+    let m = app(Screen::Bluetooth);
+    assert!(hint(&ui, &m).contains("as “Y2Linux” for 2 minutes"));
+    ui.bluetooth.name = Some("Kitchen Y2".into());
+    assert!(hint(&ui, &m).contains("as “Kitchen Y2” for 2 minutes"));
+}
+
+#[test]
 fn a_network_name_keeps_its_leading_and_trailing_spaces() {
     // A name is any 32 bytes; "Attic " and "Attic" are two networks.
     use crate::keyboard::Purpose;

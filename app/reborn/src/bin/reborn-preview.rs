@@ -1286,6 +1286,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         m.platform.snapshot.update.can_download = true;
     });
+    // #217: System > About > Name, and the keyboard it opens.
+    case!("33c-about-name", at(Screen::About, ""), |ui, _| {
+        ui.bluetooth.name = Some("Kitchen Y2".into());
+    });
+    case!("33d-name-keyboard", at(Screen::About, ""), |ui, m| {
+        ui.bluetooth.name = Some("Kitchen Y2".into());
+        m.navigation.focus = 0;
+        ui.model_action(m, Action::Select);
+    });
     case!("33b-error-reports", at(Screen::ErrorReports, ""), |_, m| {
         m.platform.snapshot.reports = Some(reborn_core::platform::ReportState {
             enabled: Some(true),

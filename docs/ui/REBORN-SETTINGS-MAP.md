@@ -63,6 +63,8 @@ Settings
 ├ Library                    Scan for Music · Storage › · Wi-Fi Share › · Last.fm ›
 └ System                     Software Update › · Time Zone › · Date & Time › · Error Reports ›
                              · Reset & Maintenance › · About ›
+   (About › Name: the player's Bluetooth name, typed on the keyboard, #217; shown only when the platform
+    tells it)
    (About › Version, tapped seven times: the service menu — codecs, Battery, Sleep, Diagnostics)
 ```
 

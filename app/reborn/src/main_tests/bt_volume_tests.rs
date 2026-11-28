@@ -13,3 +13,12 @@ fn levels_round_trip_and_a_takeover_never_gets_louder() {
     assert_eq!(takeover_level(0, 100), 0);
     assert!((0..=127).all(|r| takeover_level(r, 55) <= r));
 }
+
+#[test]
+fn the_name_keyboard_stops_where_the_radio_daemon_does() {
+    // reborn-ui has no contract types: its limit for the player's name is a copy (#217).
+    assert_eq!(
+        reborn_ui::keyboard::DEVICE_NAME_MAX_BYTES,
+        reborn_platform::bluetooth::NAME_MAX_BYTES
+    );
+}

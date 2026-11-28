@@ -218,8 +218,12 @@ pub fn page(ui: &Ui, m: &AppModel, tracks: &[Track]) -> Page {
         Screen::SettingsPlayback => Page::rows(vec![
             row("Gapless Playback", "gapless", "")
                 .with_kind(RowKind::Toggle(m.settings.gapless_enabled)),
-            row("Crossfade", "crossfade", crate::crossfade_label(m.settings.crossfade_ms))
-                .with_kind(RowKind::Chevron),
+            row(
+                "Crossfade",
+                "crossfade",
+                crate::crossfade_label(m.settings.crossfade_ms),
+            )
+            .with_kind(RowKind::Chevron),
         ]),
         Screen::SettingsLibrary => library::page(ui, m, tracks),
         Screen::SettingsDisplay if m.navigation.filter == crate::BATTERY_SAVER => battery_saver(m),
@@ -273,16 +277,52 @@ pub fn page(ui: &Ui, m: &AppModel, tracks: &[Track]) -> Page {
                     .unwrap_or_else(|| "Y2Linux".into()),
             )
             .fact("Device", "Innioasis Y2")
-            .with_rows(vec![row("Version", "version", short_version(reborn_core::VERSION)), Item::new("Licenses", "value:Licenses\u{1f}Reborn is free software under the MIT license. The system includes open-source components under their own licenses; their texts are installed with the system software.")]),
+            .with_rows(about_rows(ui)),
         Screen::Maintenance => Page::rows(vec![
-            row("Reset Reborn Settings", "confirm:reset_settings", "Music and playlists stay"),
-            row("Forget Wi-Fi Networks", "confirm:forget_wifi", "Saved passwords are removed"),
-            row("Remove Bluetooth Pairings", "confirm:forget_bluetooth", "Pair your devices again"),
-            row("Rebuild Music Library", "confirm:rebuild_library", "Re-read every music file"),
-            row("Clear Cache", "confirm:clear_cache", "Removes saved artwork copies"),
+            row(
+                "Reset Reborn Settings",
+                "confirm:reset_settings",
+                "Music and playlists stay",
+            ),
+            row(
+                "Forget Wi-Fi Networks",
+                "confirm:forget_wifi",
+                "Saved passwords are removed",
+            ),
+            row(
+                "Remove Bluetooth Pairings",
+                "confirm:forget_bluetooth",
+                "Pair your devices again",
+            ),
+            row(
+                "Rebuild Music Library",
+                "confirm:rebuild_library",
+                "Re-read every music file",
+            ),
+            row(
+                "Clear Cache",
+                "confirm:clear_cache",
+                "Removes saved artwork copies",
+            ),
         ]),
         _ => Page::default(),
     }
+}
+
+/// System > About's rows: the player's Bluetooth name when the platform tells it (#217), the
+/// version (tapped seven times: the service menu) and the licenses.
+fn about_rows(ui: &Ui) -> Vec<Item> {
+    let mut rows = Vec::new();
+    if let Some(name) = &ui.bluetooth.name {
+        rows.push(row("Name", "device_name", name));
+    }
+    rows.push(row(
+        "Version",
+        "version",
+        short_version(reborn_core::VERSION),
+    ));
+    rows.push(Item::new("Licenses", "value:Licenses\u{1f}Reborn is free software under the MIT license. The system includes open-source components under their own licenses; their texts are installed with the system software."));
+    rows
 }
 
 pub fn output_name(ui: &Ui, m: &AppModel) -> String {
@@ -861,11 +901,11 @@ fn bluetooth(ui: &Ui, m: &AppModel) -> Page {
         match b.scan {
             // A search also leaves the player visible for 2 minutes (y2-radiod), for a car
             // that pairs from its side (Y2Linux #116).
-            reborn_core::RadioScan::Starting | reborn_core::RadioScan::Scanning => Some(
+            reborn_core::RadioScan::Starting | reborn_core::RadioScan::Scanning => Some(format!(
                 "Searching… Put your headphones in pairing mode. A car can find this player \
-                 as Y2Linux for 2 minutes."
-                    .into(),
-            ),
+                     as “{}” for 2 minutes.",
+                b.name.as_deref().unwrap_or("Y2Linux")
+            )),
             reborn_core::RadioScan::Complete { found: 0 } => {
                 Some("No devices found. Put your headphones in pairing mode.".into())
             }

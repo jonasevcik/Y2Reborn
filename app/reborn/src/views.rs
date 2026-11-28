@@ -136,6 +136,7 @@ pub(crate) fn bluetooth_view(s: &bluetooth::Status) -> BluetoothView {
         }),
         // The radio daemon words its failures for the owner.
         problem: s.error.clone(),
+        name: s.name.clone(),
     }
 }
 

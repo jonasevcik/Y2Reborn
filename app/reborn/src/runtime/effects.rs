@@ -103,6 +103,7 @@ impl Runtime {
                 | Effect::WifiDisconnect
                 | Effect::BluetoothPower
                 | Effect::BluetoothScan
+                | Effect::BluetoothName(_)
                 | Effect::ConfirmPairing(_)
                 | Effect::ScreenSleep
                 | Effect::ScreenWake
@@ -219,6 +220,13 @@ impl Runtime {
             Effect::BluetoothDevice { path, operation } => {
                 self.on_bluetooth_device(path, operation)?
             }
+            Effect::BluetoothName(name) => self
+                .bluetooth
+                .as_ref()
+                .ok_or("Bluetooth unavailable")?
+                .commands
+                .try_send(bluetooth::Command::Name(name))
+                .map_err(|_| "Bluetooth busy")?,
             Effect::Output(o) => self.switch(o)?,
             Effect::ConfirmPairing(ok) => self
                 .bluetooth
