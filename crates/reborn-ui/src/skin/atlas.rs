@@ -192,6 +192,36 @@ pub(crate) struct Coverage {
     pub alpha: Vec<u8>,
 }
 
+/// A glyph's bitmap size, with its top-left `left` pixels right of the pen
+/// and `top` pixels above the baseline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Bounds {
+    pub w: usize,
+    pub h: usize,
+    pub left: i16,
+    pub top: i16,
+}
+
+/// Glyph `id`'s bounds at `scale` pixels per font unit, from its outline
+/// without rasterising; `None` for a blank glyph (no outline).
+pub(crate) fn bounds(
+    face: &ttf_parser::Face,
+    id: ttf_parser::GlyphId,
+    scale: f32,
+) -> Option<Bounds> {
+    let bbox = face.glyph_bounding_box(id)?;
+    let left = (f32::from(bbox.x_min) * scale).floor();
+    let top = (f32::from(bbox.y_max) * scale).ceil();
+    let right = (f32::from(bbox.x_max) * scale).ceil();
+    let bottom = (f32::from(bbox.y_min) * scale).floor();
+    Some(Bounds {
+        w: (right - left) as usize + 1,
+        h: (top - bottom) as usize + 1,
+        left: left as i16,
+        top: top as i16,
+    })
+}
+
 /// Rasterise glyph `id` at `scale` pixels per font unit; `None` for a blank
 /// glyph (no outline) or one larger than `max` pixels on a side.
 pub(crate) fn coverage(
@@ -201,38 +231,44 @@ pub(crate) fn coverage(
     raster: &mut ab_glyph_rasterizer::Rasterizer,
     max: usize,
 ) -> Result<Option<Coverage>, ()> {
-    let Some(bbox) = face.glyph_bounding_box(id) else {
+    let Some(b) = bounds(face, id, scale) else {
         return Ok(None);
     };
-    let left = (f32::from(bbox.x_min) * scale).floor();
-    let top = (f32::from(bbox.y_max) * scale).ceil();
-    let right = (f32::from(bbox.x_max) * scale).ceil();
-    let bottom = (f32::from(bbox.y_min) * scale).floor();
-    let (w, h) = ((right - left) as usize + 1, (top - bottom) as usize + 1);
-    if w > max || h > max {
+    if b.w > max || b.h > max {
         return Err(());
     }
-    raster.reset(w, h);
+    Ok(Some(coverage_within(face, id, scale, b, raster)))
+}
+
+/// Rasterise glyph `id` at `scale` into `b`, the bounds `bounds` measured.
+pub(crate) fn coverage_within(
+    face: &ttf_parser::Face,
+    id: ttf_parser::GlyphId,
+    scale: f32,
+    b: Bounds,
+    raster: &mut ab_glyph_rasterizer::Rasterizer,
+) -> Coverage {
+    raster.reset(b.w, b.h);
     let mut outline = Outline {
         raster,
         scale,
-        x0: left / scale,
-        y0: top / scale,
+        x0: f32::from(b.left) / scale,
+        y0: f32::from(b.top) / scale,
         start: ab_glyph_rasterizer::point(0., 0.),
         last: ab_glyph_rasterizer::point(0., 0.),
     };
     face.outline_glyph(id, &mut outline);
-    let mut alpha = vec![0; w * h];
+    let mut alpha = vec![0; b.w * b.h];
     raster.for_each_pixel_2d(|x, y, a| {
-        alpha[y as usize * w + x as usize] = (a.clamp(0., 1.) * 255.).round() as u8;
+        alpha[y as usize * b.w + x as usize] = (a.clamp(0., 1.) * 255.).round() as u8;
     });
-    Ok(Some(Coverage {
-        w,
-        h,
-        left: left as i16,
-        top: top as i16,
+    Coverage {
+        w: b.w,
+        h: b.h,
+        left: b.left,
+        top: b.top,
         alpha,
-    }))
+    }
 }
 
 /// Rasterise `charset()` from `data` at `px` into the atlas.
