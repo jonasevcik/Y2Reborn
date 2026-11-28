@@ -5,6 +5,7 @@ use reborn_core::{
     AppModel, Screen, Track,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 /// A genre's cover track, its albums, its song count and whether the cover
 /// track has artwork.
 type GenreStats<'a> = (usize, BTreeSet<(&'a str, &'a str)>, usize, bool);
@@ -138,7 +139,9 @@ impl Row {
 #[derive(Default)]
 pub struct Catalog {
     stamp: Option<Stamp>,
-    pub rows: Vec<Row>,
+    /// Shared with `whole` for a whole-library list: Songs opened again shows the kept rows, not
+    /// a copy of 120 000 of them.
+    pub rows: Rc<Vec<Row>>,
     /// The letter each row files under, read when a letter jump first
     /// passes it (#30); cleared with the rows.
     letters: Vec<Option<char>>,
@@ -160,7 +163,7 @@ pub struct Catalog {
     /// The whole-library lists (Songs, Albums, Artists, Genres) as last
     /// built for this library: opening one again does not sort 120 000
     /// songs again (Beta 8.39).
-    whole: Vec<(WholeKey, Vec<Row>)>,
+    whole: Vec<(WholeKey, Rc<Vec<Row>>)>,
 }
 /// What the rows were built from: the library, the screen and its filter, who Artists lists
 /// and how albums are ordered (Albums, and within an artist, Y2Reborn #75).
@@ -171,8 +174,9 @@ type Stamp = (
     String,
     reborn_core::ArtistsList,
     (reborn_core::AlbumOrder, reborn_core::ArtistAlbums),
-    // The play history (Recently Played and Most Played change with it).
-    u64,
+    // The play history, for the lists made from it (Recently Played, Most Played): no other
+    // list changes when a song is counted.
+    Option<u64>,
 );
 /// A whole-library list: the library, the screen, who Artists lists and how
 /// Albums orders them.
@@ -310,7 +314,7 @@ impl Catalog {
             self.push(lead);
         }
         let whole = only.is_some() || total <= SECTION_PREVIEW;
-        self.rows.extend(
+        self.rows_mut().extend(
             rows.into_iter()
                 .take(if whole { total } else { SECTION_PREVIEW }),
         );
@@ -352,11 +356,17 @@ impl Catalog {
                     .with_secondary(crate::components::count(songs, "song", "songs")),
             );
         }
-        self.rows.extend(songs.into_iter().map(Row::FolderTrack));
+        self.rows_mut()
+            .extend(songs.into_iter().map(Row::FolderTrack));
     }
 
     fn push(&mut self, item: Item) {
-        self.rows.push(Row::Item(item));
+        self.rows_mut().push(Row::Item(item));
+    }
+    /// The rows being built. `ensure` starts each list with rows of its own, so they are not
+    /// shared yet and nothing is copied here.
+    fn rows_mut(&mut self) -> &mut Vec<Row> {
+        Rc::make_mut(&mut self.rows)
     }
     pub fn clear(&mut self) {
         self.stamp = None;
@@ -378,13 +388,14 @@ impl Catalog {
             m.navigation.filter.clone(),
             m.settings.artists_list,
             (m.settings.album_order, m.settings.artist_albums),
-            m.play_stats.generation(),
+            crate::play_options::follows_plays(&m.navigation.filter)
+                .then(|| m.play_stats.generation()),
         );
         if self.stamp.as_ref() == Some(&stamp) {
             return;
         }
         self.stamp = Some(stamp);
-        self.rows.clear();
+        self.rows = Rc::default();
         self.letters.clear();
         let whole = (m.navigation.filter.is_empty()
             && matches!(
@@ -402,11 +413,11 @@ impl Catalog {
         if let Some(key) = whole {
             self.whole.retain(|(k, _)| k.0 == key.0);
             if let Some((_, rows)) = self.whole.iter().find(|(k, _)| *k == key) {
-                self.rows = rows.clone();
+                self.rows = Rc::clone(rows);
                 return;
             }
             self.build(m, tracks);
-            self.whole.push((key, self.rows.clone()));
+            self.whole.push((key, Rc::clone(&self.rows)));
             return;
         }
         self.build(m, tracks);
@@ -585,7 +596,7 @@ impl Catalog {
                         .collect(),
                 };
                 if ids.is_empty() {
-                    self.rows.clear();
+                    self.rows_mut().clear();
                     return;
                 }
                 if m.screen == Screen::Tracks && m.navigation.filter.is_empty() {
@@ -614,7 +625,7 @@ impl Catalog {
                     })
                     .filter(|(_, total, _)| *total > ids.len());
                 if matches!(m.screen, Screen::Album | Screen::Artist) {
-                    if let Some(Row::Item(item)) = self.rows.first_mut() {
+                    if let Some(Row::Item(item)) = self.rows_mut().first_mut() {
                         item.secondary = page_detail(m.screen, &ids, whole.as_ref());
                     }
                 }
@@ -643,9 +654,9 @@ impl Catalog {
                     if m.screen == Screen::Album
                         && (t.artist == t.album_artist || t.album_artist.is_empty())
                     {
-                        self.rows.push(Row::AlbumTrack(i));
+                        self.rows_mut().push(Row::AlbumTrack(i));
                     } else {
-                        self.rows.push(Row::Track(i));
+                        self.rows_mut().push(Row::Track(i));
                     }
                 }
                 if let Some((key, total, _)) = whole {

@@ -739,6 +739,53 @@ fn the_book_list_is_kept_and_the_playing_book_follows_the_sound() {
     assert_eq!(ui.row_count(&m, &tracks), 41);
 }
 
+/// A book's page works out where the listener is once a frame and makes rows only for the
+/// chapters in view; it shows a new, a playing and a finished book as before.
+#[test]
+fn a_books_page_shows_where_the_listener_is() {
+    use reborn_core::books::{books, Listening};
+    let ui = radios();
+    let mut m = app(Screen::Book);
+    with_book(&mut m);
+    let tracks = m.library.tracks.clone();
+    let book = books(&tracks).remove(0);
+    m.navigation.filter = book.key.clone();
+    let shows = |m: &AppModel, expected: &[&str], absent: &str| {
+        let text = drawn_text(&ui.draw(m, &tracks, false));
+        for line in expected {
+            assert!(text.contains(line), "{line}: {text}");
+        }
+        assert!(!text.contains(absent), "{absent}: {text}");
+    };
+    shows(
+        &m,
+        &["Play", "3 min · 3 chapters", "Teil 1", "Teil 3"],
+        "Start Over",
+    );
+    // Halfway through part two, playing.
+    let parts: Vec<Track> = book.parts.iter().map(|&i| tracks[i].clone()).collect();
+    m.replace_queue(parts, 1).unwrap();
+    m.book = Some(Listening::new(&book, &tracks, 1.0));
+    m.position_ms = 30_000;
+    shows(
+        &m,
+        &[
+            "Continue",
+            "Start Over",
+            "Chapter 2 of 3 · 50 % · 1 min left",
+            "Teil 2",
+        ],
+        "Play",
+    );
+    // The playing book's chapters are read where they are, not copied for each look.
+    let listening = crate::views_books::listening(&m, &tracks, &book);
+    assert!(matches!(listening, std::borrow::Cow::Borrowed(_)));
+    // Finished, and no longer playing.
+    m.book = None;
+    m.library.shelf.set_finished(&book, &tracks, true, 2);
+    shows(&m, &["Play", "Start Over", "Finished"], "Continue");
+}
+
 #[test]
 fn chapter_buttons_step_chapters_in_a_book_and_songs_elsewhere() {
     use reborn_core::books::{books, Listening};
@@ -4405,6 +4452,94 @@ fn album_detail_shows_short_albums_in_seconds_and_follows_the_library() {
     assert_eq!(ui.album_detail(&m, &short[..1], &key), "1 song · 0:14");
 }
 
+/// A genre's albums are named with that genre's songs (#50), counted once for the genre: its
+/// grid and Cover Flow ask for each album they pass.
+#[test]
+fn a_genres_album_lines_are_counted_once_per_genre() {
+    let ui = radios();
+    let mut m = app(Screen::Albums);
+    for (t, genre) in m
+        .library
+        .tracks
+        .iter_mut()
+        .zip(["Jazz", "Jazz", "Rock", "Jazz"])
+    {
+        t.genre = genre.into();
+    }
+    let tracks = m.library.tracks.clone();
+    let key = |i: usize, genre: &str| format!("{}\u{1f}genre:{genre}", album_filter(&tracks[i]));
+    let (jazz_0, jazz_1, rock_0) = (key(0, "Jazz"), key(3, "Jazz"), key(2, "Rock"));
+    for (key, line) in [
+        (&jazz_0, "2 songs · 6 min"),
+        (&jazz_1, "1 song · 3 min"),
+        (&rock_0, "1 song · 3 min"),
+    ] {
+        assert_eq!(ui.album_detail(&m, &tracks, key), line, "{key}");
+        assert_eq!(views_library::album_detail(&m, &tracks, key), line, "{key}");
+    }
+    // Jazz again: a mark in its kept totals shows on its next album.
+    ui.album_detail(&m, &tracks, &jazz_0);
+    if let Some((_, _, totals)) = ui.genre_totals.borrow_mut().as_mut() {
+        for total in totals.values_mut() {
+            total.songs = 99;
+        }
+    }
+    assert_eq!(ui.album_detail(&m, &tracks, &jazz_1), "99 songs · 3 min");
+    // Another genre, and a new library, are counted again.
+    assert_eq!(ui.album_detail(&m, &tracks, &rock_0), "1 song · 3 min");
+    assert_eq!(
+        ui.album_detail(&m, &tracks.clone(), &jazz_1),
+        "1 song · 3 min"
+    );
+}
+
+/// A counted song changes Recently Played and Most Played only: an album's page keeps its rows
+/// (every counted song made each open list again, Songs a copy of all of its rows).
+#[test]
+fn a_counted_song_refreshes_only_the_lists_made_from_plays() {
+    let ui = radios();
+    let mut m = app(Screen::Album);
+    let tracks = m.library.tracks.clone();
+    m.navigation.filter = album_filter(&tracks[0]);
+    assert!(ui.rows(&m, &tracks).iter().any(|r| r.key == "track:0"));
+    // A mark in the kept rows: a page made again loses it.
+    ui.catalog.borrow_mut().rows = vec![catalog::Row::Item(Item::new("Kept", "kept"))].into();
+    m.play_stats.record(&tracks[0]);
+    let keys: Vec<String> = ui.rows(&m, &tracks).into_iter().map(|r| r.key).collect();
+    assert_eq!(
+        keys,
+        ["kept"],
+        "a counted song leaves an album's page as it was"
+    );
+    // Recently Played follows each counted song.
+    m.screen = Screen::Tracks;
+    m.navigation.filter = crate::play_options::RECENTLY_PLAYED.into();
+    let songs = |m: &AppModel| -> Vec<String> {
+        let rows = ui.rows(m, &tracks).into_iter().map(|r| r.key);
+        rows.filter(|k| k.starts_with("track:")).collect()
+    };
+    assert_eq!(songs(&m), ["track:0"]);
+    m.play_stats.record(&tracks[1]);
+    assert_eq!(songs(&m), ["track:1", "track:0"]);
+}
+
+/// Songs opened again shows the rows kept for the library, not a copy of them (120 000 rows on a
+/// full card, copied on every open).
+#[test]
+fn a_whole_library_list_opened_again_shares_its_kept_rows() {
+    let ui = radios();
+    let mut m = app(Screen::Tracks);
+    let tracks = m.library.tracks.clone();
+    let first = ui.rows(&m, &tracks);
+    let kept = ui.catalog.borrow().rows.as_ptr();
+    m.screen = Screen::Albums;
+    ui.rows(&m, &tracks);
+    m.screen = Screen::Tracks;
+    assert_eq!(ui.rows(&m, &tracks), first);
+    let shown = ui.catalog.borrow().rows.as_ptr();
+    assert_eq!(shown, kept, "the same rows, not a copy");
+}
+
 #[test]
 fn only_cover_flow_motion_asks_for_the_panel_rate() {
     let ui = radios();
@@ -6991,6 +7126,28 @@ fn up_next_opens_on_the_song_playing_with_history_above_and_its_parts_named() {
     assert_eq!(m.screen, Screen::NowPlaying);
 }
 
+/// Save Up Next as Playlist names each queued song by its place in the library, in the queue's
+/// order (found in the index Up Next keeps, not by a pass over the library for each song).
+#[test]
+fn up_next_saved_as_a_playlist_holds_its_songs_in_order() {
+    use reborn_core::PlaylistRequest;
+    let mut ui = radios();
+    let mut m = app(Screen::Queue);
+    let tracks = m.library.tracks.clone();
+    let queue = [4, 2, 7].map(|i| tracks[i].clone()).to_vec();
+    m.replace_queue(queue, 0).unwrap();
+    m.navigation.focus = 0;
+    assert_eq!(menu_select(&mut ui, &mut m, "save_queue"), Effect::None);
+    ui.keyboard.as_mut().unwrap().text = "Road Trip".into();
+    assert_eq!(
+        ui.model_action(&mut m, Action::ContextMenu),
+        Effect::Playlist(Box::new(PlaylistRequest::Create {
+            name: "Road Trip".into(),
+            tracks: vec![4, 2, 7]
+        }))
+    );
+}
+
 #[test]
 fn up_from_the_first_song_under_a_heading_wraps_when_lists_wrap_everywhere() {
     let mut ui = radios();
@@ -9238,7 +9395,8 @@ fn films_have_their_own_place_and_never_stand_among_the_songs() {
     assert_eq!(rows[0].secondary, "2 min");
     // Select plays the film at once and shows it, with the other films as
     // its collection in the list's order: Next is the film below (#128).
-    let mut tracks = tracks;
+    // A second film comes with a new library, as a scan publishes it.
+    let mut tracks = tracks.clone();
     tracks[2].codec = "h264/aac".into();
     tracks[2].title = "Arrival".into();
     m.library.tracks = tracks.clone();
@@ -9257,6 +9415,37 @@ fn films_have_their_own_place_and_never_stand_among_the_songs() {
     let mut songs = app(Screen::Tracks);
     songs.library.tracks = tracks.clone();
     assert!(!ui.rows(&songs, &tracks).iter().any(|r| r.key == "track:0"));
+}
+
+/// The Videos list is made once per library: each count and window of a frame read it, and
+/// making it sorts every film by title.
+#[test]
+fn the_videos_list_is_kept_until_the_library_changes() {
+    let ui = radios();
+    let mut m = app(Screen::Videos);
+    for t in &mut m.library.tracks[..2] {
+        t.codec = "h264/aac".into();
+    }
+    let tracks = m.library.tracks.clone();
+    assert_eq!(ui.row_count(&m, &tracks), 2);
+    // A mark in the kept rows: rows made again would lose it.
+    if let Some((_, rows)) = ui.video_rows.borrow_mut().as_mut() {
+        rows[0].label = "Kept".into();
+    }
+    let label = |rows: Vec<Item>| rows.first().map(|r| r.label.clone());
+    assert_eq!(
+        label(ui.visible_rows(&m, &tracks, 0, 2)).as_deref(),
+        Some("Kept")
+    );
+    assert_eq!(
+        ui.row_at(&m, &tracks, 0).map(|r| r.label).as_deref(),
+        Some("Kept")
+    );
+    assert_eq!(label(ui.rows(&m, &tracks)).as_deref(), Some("Kept"));
+    // A new library: its own rows.
+    let tracks = tracks.clone();
+    assert_eq!(label(ui.rows(&m, &tracks)).as_deref(), Some("Song 0"));
+    assert_eq!(ui.row_count(&m, &tracks), 2);
 }
 
 #[test]

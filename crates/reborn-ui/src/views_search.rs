@@ -47,10 +47,22 @@ pub(crate) fn window(heights: &[f32], focus: usize, scroll: usize) -> usize {
     if first == 1 {
         first = 0;
     }
-    while first < focus && heights[first..=focus].iter().sum::<f32>() > VIEW_H {
-        first += 1;
+    fit_from(heights, first, focus, VIEW_H)
+}
+
+/// The first row, from `first` on, from which the rows down to `focus` fit in `view` (the focus
+/// alone when it is taller). Walked up from the focus, over the rows that fit: summing every row
+/// from `first` again for each step down took a pass over thousands of rows when a long Up Next
+/// wrapped from its top to its end. The heights are whole pixels, so a sum is the same in either
+/// order.
+fn fit_from(heights: &[f32], first: usize, focus: usize, view: f32) -> usize {
+    let mut fit = focus;
+    let mut shown = heights[focus];
+    while fit > first && shown + heights[fit - 1] <= view {
+        fit -= 1;
+        shown += heights[fit];
     }
-    first
+    fit
 }
 
 /// The search page's first result in view: the field (when `fixed`, row 0)
@@ -73,10 +85,7 @@ pub(crate) fn search_first(heights: &[f32], focus: usize, scroll: usize, fixed: 
     if first == focus && first > skip && heights[first - 1] == HEADING_ROW {
         first -= 1;
     }
-    while first < focus && heights[first..=focus].iter().sum::<f32>() > view {
-        first += 1;
-    }
-    first
+    fit_from(heights, first, focus, view)
 }
 
 /// The search's field: as the keys left it; focused, its caret says Select
@@ -346,5 +355,90 @@ mod tests {
         // Up to the first artist: back to the top.
         assert_eq!(window(&h, 2, 4), 0);
         assert_eq!(window(&[], 3, 3), 0);
+    }
+
+    /// `window` as it was: the rows from the first to the focus summed again for every step.
+    fn window_by_sums(heights: &[f32], focus: usize, scroll: usize) -> usize {
+        if heights.is_empty() {
+            return 0;
+        }
+        let focus = focus.min(heights.len() - 1);
+        let mut first = scroll.min(focus);
+        if first == focus && first > 0 && heights[first - 1] == HEADING_ROW {
+            first -= 1;
+        }
+        if first == 1 {
+            first = 0;
+        }
+        while first < focus && heights[first..=focus].iter().sum::<f32>() > VIEW_H {
+            first += 1;
+        }
+        first
+    }
+
+    /// `search_first` as it was, summing the same way.
+    fn search_first_by_sums(heights: &[f32], focus: usize, scroll: usize, fixed: bool) -> usize {
+        let skip = usize::from(fixed && !heights.is_empty());
+        if heights.len() <= skip {
+            return skip;
+        }
+        let view = VIEW_H - heights[..skip].iter().sum::<f32>();
+        let last = heights.len() - 1;
+        let focus = if focus < skip {
+            scroll.clamp(skip, last)
+        } else {
+            focus.min(last)
+        };
+        let mut first = scroll.clamp(skip, focus);
+        if first == focus && first > skip && heights[first - 1] == HEADING_ROW {
+            first -= 1;
+        }
+        while first < focus && heights[first..=focus].iter().sum::<f32>() > view {
+            first += 1;
+        }
+        first
+    }
+
+    #[test]
+    fn the_window_is_found_from_the_focus_as_it_was_by_summing_every_row() {
+        // Lists of every kind of row in a fixed pseudo-random order, each focus and scroll.
+        let kinds = [FIELD_ROW, HEADING_ROW, SEE_ALL_ROW, ROW];
+        let mut seed = 7u32;
+        for len in [0, 1, 2, 3, 5, 8, 13, 40] {
+            for _ in 0..12 {
+                let h: Vec<f32> = (0..len)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                        kinds[(seed >> 16) as usize % kinds.len()]
+                    })
+                    .collect();
+                for focus in 0..len + 2 {
+                    for scroll in 0..len + 2 {
+                        let at = format!("{h:?}, focus {focus}, scroll {scroll}");
+                        assert_eq!(
+                            window(&h, focus, scroll),
+                            window_by_sums(&h, focus, scroll),
+                            "{at}"
+                        );
+                        for fixed in [false, true] {
+                            assert_eq!(
+                                search_first(&h, focus, scroll, fixed),
+                                search_first_by_sums(&h, focus, scroll, fixed),
+                                "{at}, fixed {fixed}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // A long Up Next wrapped from its top to its end, and back.
+        let mut h = vec![HEADING_ROW];
+        h.extend([ROW; 1500]);
+        h.push(HEADING_ROW);
+        h.extend([ROW; 1500]);
+        let last = h.len() - 1;
+        assert_eq!(window(&h, last, 0), window_by_sums(&h, last, 0));
+        assert_eq!(window(&h, 1, last), window_by_sums(&h, 1, last));
+        assert_eq!(window(&h, 1501, 0), window_by_sums(&h, 1501, 0));
     }
 }

@@ -319,6 +319,7 @@ fn skinned(ui: &Ui, skin: &Skin, m: &AppModel, tracks: &[Track], has_art: bool) 
                 opacity: 1.,
                 native: Some(&native),
                 label_end: Default::default(),
+                rows: Default::default(),
             };
             skin::draw_layout(&mut c, &scene, layout);
         }
@@ -349,6 +350,7 @@ fn skinned_overlays(c: &mut Canvas, ui: &Ui, skin: &Skin, m: &AppModel, tracks: 
         opacity,
         native: None,
         label_end: Default::default(),
+        rows: Default::default(),
     };
     // A sheet or dialog: (title, body, rows, focus, danger, is a dialog).
     let mut sheet: Option<(String, String, Vec<Item>, usize, bool, bool)> = None;

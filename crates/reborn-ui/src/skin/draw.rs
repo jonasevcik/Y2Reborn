@@ -39,6 +39,10 @@ pub(crate) struct Scene<'a> {
     /// same row may use the room up to it (a long value, such as the song Up
     /// Next names, is not cut to its box when the label leaves room; #60).
     pub label_end: std::cell::Cell<Option<f32>>,
+    /// The screen's row count, counted once for the layout: `empty` (up to six times in a bundled
+    /// list layout), `{position}` and the list each asked, and a list made from a page (Home,
+    /// the stations) was made again each time.
+    pub rows: std::cell::OnceCell<usize>,
 }
 
 /// A sheet or dialog: its copy, choices and focus.
@@ -256,7 +260,7 @@ impl Scene<'_> {
                 .unwrap_or_default(),
             Var::Clock => self.ui.clock(m).unwrap_or_default(),
             Var::Date => self.ui.date(m).unwrap_or_default(),
-            Var::Position => match self.ui.row_count(m, self.tracks) {
+            Var::Position => match self.row_count() {
                 0 => String::new(),
                 count => format!("{} of {count}", m.navigation.focus.min(count - 1) + 1),
             },
@@ -368,7 +372,9 @@ impl Scene<'_> {
     }
 
     fn row_count(&self) -> usize {
-        self.ui.row_count(self.m, self.tracks)
+        *self
+            .rows
+            .get_or_init(|| self.ui.row_count(self.m, self.tracks))
     }
 
     /// Items of a list window: `(items, total, focus, first index)`.

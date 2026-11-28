@@ -76,7 +76,7 @@ impl Ui {
             Screen::Playlists | Screen::Playlist => self.playlist_rows(m, tracks),
             Screen::Audiobooks => self.with_book_rows(m, tracks, <[Item]>::to_vec),
             Screen::Book => views_books::page_rows(self, m, tracks),
-            Screen::Videos => views_videos::rows(tracks),
+            Screen::Videos => self.with_video_rows(tracks, <[Item]>::to_vec),
             Screen::Diagnostics => diagnostics::root(m),
             Screen::DiagnosticSection => diagnostics::section_rows(m, &m.navigation.filter),
             Screen::ValueDetail => vec![Item::new("Back", "back")],
@@ -155,6 +155,8 @@ impl Ui {
             self.with_playlist_rows(m, tracks, <[Item]>::len)
         } else if m.screen == Screen::Audiobooks {
             self.with_book_rows(m, tracks, <[Item]>::len)
+        } else if m.screen == Screen::Videos {
+            self.with_video_rows(tracks, <[Item]>::len)
         } else {
             self.rows(m, tracks).len()
         }
@@ -211,6 +213,8 @@ impl Ui {
             self.with_playlist_rows(m, tracks, |rows| rows.get(index).cloned())
         } else if m.screen == Screen::Audiobooks {
             self.with_book_rows(m, tracks, |rows| rows.get(index).cloned())
+        } else if m.screen == Screen::Videos {
+            self.with_video_rows(tracks, |rows| rows.get(index).cloned())
         } else {
             self.rows(m, tracks).get(index).cloned()
         }
@@ -232,6 +236,10 @@ impl Ui {
             })
         } else if m.screen == Screen::Audiobooks {
             self.with_book_rows(m, tracks, |rows| {
+                rows.iter().skip(offset).take(count).cloned().collect()
+            })
+        } else if m.screen == Screen::Videos {
+            self.with_video_rows(tracks, |rows| {
                 rows.iter().skip(offset).take(count).cloned().collect()
             })
         } else {

@@ -5,7 +5,12 @@
 use crate::play_options;
 use crate::{display_or_unknown, track_title, Effect, Item, Selection, Ui};
 use reborn_core::{Action, AppModel, QueueEntryId, Screen, Track};
-use std::{collections::HashMap, ops::Range};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    ops::Range,
+    path::Path,
+};
 
 /// A row of Up Next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,12 +133,48 @@ type HistoryRows = (
 );
 /// Library stamp and each song's library index by (id, source).
 type LibraryIds = ((usize, usize), HashMap<(i64, String), usize>);
+/// Library stamp and each song's library index by the hash of its (source, path), as the
+/// history names songs (`path_key`).
+type LibraryPaths = ((usize, usize), HashMap<u64, usize>);
 
-/// History rows and library indices by id, kept until they change.
+/// History rows and library indices by id and by path, kept until they change.
 #[derive(Default)]
 pub(crate) struct Cache {
     history: Option<HistoryRows>,
     ids: Option<LibraryIds>,
+    /// Kept for the library, apart from the history: every song played changes the history, and
+    /// indexing every song of the library again for it took a moment on each open of Up Next.
+    paths: Option<LibraryPaths>,
+}
+
+/// The key a song is found by in `Cache::paths`: the hash of its (source, path), which keeps no
+/// copy of 120 000 paths. The hasher's keys are fixed, so a key is the same on every call.
+fn path_key(source_id: &str, path: &Path) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (source_id, path).hash(&mut hasher);
+    hasher.finish()
+}
+
+impl Cache {
+    /// The library index of the song at (`source_id`, `path`), the last one when the library
+    /// holds it twice.
+    fn find(&mut self, tracks: &[Track], source_id: &str, path: &Path) -> Option<usize> {
+        let stamp = crate::library_stamp(tracks);
+        if self.paths.as_ref().is_none_or(|(s, _)| *s != stamp) {
+            let mut paths = HashMap::with_capacity(tracks.len());
+            for (i, t) in tracks.iter().enumerate() {
+                paths.insert(path_key(&t.source_id, &t.path), i);
+            }
+            self.paths = Some((stamp, paths));
+        }
+        let at = *self.paths.as_ref()?.1.get(&path_key(source_id, path))?;
+        let named = |t: &Track| t.source_id == source_id && t.path == path;
+        if tracks.get(at).is_some_and(named) {
+            return Some(at);
+        }
+        // Two songs whose keys hash alike (a chance no library meets): a pass finds this one.
+        tracks.iter().rposition(named)
+    }
 }
 
 impl Ui {
@@ -145,19 +186,10 @@ impl Ui {
             .as_ref()
             .is_some_and(|(s, h, _)| *s == stamp && *h == m.history);
         if !fresh {
-            let index: HashMap<(&str, &std::path::Path), usize> = tracks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| ((t.source_id.as_str(), t.path.as_path()), i))
-                .collect();
             let rows = m
                 .history
                 .iter()
-                .filter_map(|e| {
-                    index
-                        .get(&(e.source_id.as_str(), e.path.as_path()))
-                        .copied()
-                })
+                .filter_map(|e| cache.find(tracks, &e.source_id, &e.path))
                 .filter(|&i| tracks[i].online)
                 .collect();
             cache.history = Some((stamp, m.history.clone(), rows));
@@ -798,5 +830,47 @@ mod tests {
         assert_eq!(layout.len(), 1 + 3);
         assert_eq!(layout.row(1), Some(Row::SourceHeading));
         assert_eq!(Layout::new(&AppModel::default(), vec![1]).len(), 0);
+    }
+
+    #[test]
+    fn the_history_finds_its_songs_in_an_index_kept_for_the_library() {
+        let tracks: Vec<Track> = (0..4)
+            .map(|id| Track {
+                id,
+                source_id: "internal".into(),
+                path: format!("/music/{id}.flac").into(),
+                online: true,
+                size: 1,
+                ..Default::default()
+            })
+            .collect();
+        let mut m = model(3, 0, 0);
+        let ui = Ui::default();
+        m.note_played(&tracks[0]);
+        assert_eq!(ui.up_next(&m, &tracks).history, [0]);
+        // A song played changes the history only: the index is not made again. Emptied here, the
+        // new song is not found in it.
+        if let Some((_, paths)) = ui.up_next_cache.borrow_mut().paths.as_mut() {
+            paths.clear();
+        }
+        m.note_played(&tracks[1]);
+        assert_eq!(ui.up_next(&m, &tracks).history, Vec::<usize>::new());
+        // A new library is indexed again.
+        let tracks = tracks.clone();
+        assert_eq!(ui.up_next(&m, &tracks).history, [0, 1]);
+        // Song 2's key leading to song 3, as when two keys hash alike: song 2 is still found.
+        let mut cache = ui.up_next_cache.borrow_mut();
+        let key = path_key("internal", Path::new("/music/2.flac"));
+        if let Some((_, paths)) = cache.paths.as_mut() {
+            paths.insert(key, 3);
+        }
+        assert_eq!(
+            cache.find(&tracks, "internal", Path::new("/music/2.flac")),
+            Some(2)
+        );
+        assert_eq!(
+            cache.find(&tracks, "internal", Path::new("/music/9.flac")),
+            None
+        );
     }
 }

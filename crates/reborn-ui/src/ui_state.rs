@@ -207,16 +207,36 @@ impl Ui {
         if totals.as_ref().is_some_and(|(l, _)| *l == library) {
             return;
         }
-        let mut map: HashMap<(String, String), crate::AlbumTotal> = HashMap::new();
-        for t in tracks.iter().filter(|t| t.is_music()) {
-            let entry = map
-                .entry((t.album_artist.clone(), t.album.clone()))
-                .or_default();
-            entry.songs += 1;
-            entry.ms += t.duration_ms;
-            entry.year = crate::earliest_year(entry.year, t.year);
+        *totals = Some((
+            library,
+            album_totals(tracks.iter().filter(|t| t.is_music())),
+        ));
+    }
+
+    /// An album's songs and length within `genre`, counted with every album of the genre once
+    /// per library and genre.
+    fn genre_album_total(
+        &self,
+        tracks: &[Track],
+        genre: &str,
+        album: (&str, &str),
+    ) -> crate::AlbumTotal {
+        let library = crate::library_stamp(tracks);
+        let mut totals = self.genre_totals.borrow_mut();
+        if !totals
+            .as_ref()
+            .is_some_and(|(l, g, _)| *l == library && g == genre)
+        {
+            let songs = tracks
+                .iter()
+                .filter(|t| t.is_music() && crate::in_genre(t, genre));
+            *totals = Some((library, genre.to_owned(), album_totals(songs)));
         }
-        *totals = Some((library, map));
+        totals
+            .as_ref()
+            .and_then(|(_, _, map)| map.get(&(album.0.to_owned(), album.1.to_owned())))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// While the screen is off, the work a long library's lists do when
@@ -273,7 +293,7 @@ impl Ui {
             }
         }
         // A plain album from the totals counted once; one opened from a
-        // genre (only that genre's songs) is counted on its own.
+        // genre (only that genre's songs) from its genre's, also counted once.
         let text = match album_parts(key) {
             Some((artist, album, None)) => {
                 self.count_albums(tracks);
@@ -285,7 +305,10 @@ impl Ui {
                     .unwrap_or_default();
                 views_library::album_line(total)
             }
-            _ => views_library::album_detail(m, tracks, key),
+            Some((artist, album, Some(genre))) => {
+                views_library::album_line(self.genre_album_total(tracks, genre, (artist, album)))
+            }
+            None => views_library::album_detail(m, tracks, key),
         };
         *detail = Some((library, key.to_owned(), text.clone()));
         text
@@ -684,4 +707,20 @@ impl Ui {
     pub fn take_wanted_thumbs(&self) -> Vec<(u64, usize)> {
         std::mem::take(&mut self.wanted.borrow_mut())
     }
+}
+
+/// Songs, length and earliest year per (album artist, album) of `songs`.
+fn album_totals<'a>(
+    songs: impl Iterator<Item = &'a Track>,
+) -> HashMap<(String, String), crate::AlbumTotal> {
+    let mut map: HashMap<(String, String), crate::AlbumTotal> = HashMap::new();
+    for t in songs {
+        let entry = map
+            .entry((t.album_artist.clone(), t.album.clone()))
+            .or_default();
+        entry.songs += 1;
+        entry.ms += t.duration_ms;
+        entry.year = crate::earliest_year(entry.year, t.year);
+    }
+    map
 }

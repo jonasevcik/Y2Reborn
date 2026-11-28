@@ -12,6 +12,7 @@ use reborn_core::{
     books::{self, Book, Listening},
     AppModel, Track,
 };
+use std::borrow::Cow;
 
 /// The books of a library, with the library they were made from (its
 /// address and length).
@@ -98,8 +99,16 @@ impl Ui {
             let row = cache
                 .as_mut()
                 .and_then(|(_, rows)| rows.iter_mut().find(|r| r.key == wanted));
-            if let (Some(row), Some(book)) = (row, self.book(tracks, &key)) {
-                row.secondary = status(m, tracks, &book);
+            // Every count and window of a frame comes here: the book is read where it is kept,
+            // not copied.
+            let line = |books: &[Book]| {
+                let book = books.iter().find(|b| b.key == key)?;
+                Some(status(m, tracks, book))
+            };
+            if let Some(row) = row {
+                if let Some(line) = self.with_books(tracks, line) {
+                    row.secondary = line;
+                }
             }
         }
         let cache = self.book_rows.borrow();
@@ -108,10 +117,11 @@ impl Ui {
 }
 
 /// A book with its chapters as far as they are known (the playing book's
-/// own, else from the marks read so far, else one per file).
-pub(crate) fn listening(m: &AppModel, tracks: &[Track], book: &Book) -> Listening {
+/// own, else from the marks read so far, else one per file). The playing
+/// book's are read where they are: its row and page ask on every frame.
+pub(crate) fn listening<'a>(m: &'a AppModel, tracks: &[Track], book: &Book) -> Cow<'a, Listening> {
     if let Some(playing) = m.book.as_ref().filter(|l| l.key == book.key) {
-        return playing.clone();
+        return Cow::Borrowed(playing);
     }
     let parts: Vec<&Track> = book.parts.iter().map(|&i| &tracks[i]).collect();
     let marks: Vec<_> = parts
@@ -120,7 +130,7 @@ pub(crate) fn listening(m: &AppModel, tracks: &[Track], book: &Book) -> Listenin
         .collect();
     let mut l = Listening::new(book, tracks, 1.0);
     l.chapters = books::spans(&parts, &marks);
-    l
+    Cow::Owned(l)
 }
 
 /// Where the listener is in `book`: (part index, position), live for the
@@ -150,10 +160,15 @@ fn finished(m: &AppModel, tracks: &[Track], book: &Book) -> bool {
 /// "Chapter 3 of 12 · 45 %", "Finished", or the author and the length.
 pub(crate) fn status(m: &AppModel, tracks: &[Track], book: &Book) -> String {
     if finished(m, tracks, book) {
-        return "Finished".into();
+        return FINISHED.into();
     }
-    let l = listening(m, tracks, book);
-    match place(m, tracks, book) {
+    place_line(book, &listening(m, tracks, book), place(m, tracks, book))
+}
+
+/// What `status` says of a book not finished: where the listener is in its
+/// chapters `l`, else its author and length.
+fn place_line(book: &Book, l: &Listening, at: Option<(usize, u64)>) -> String {
+    match at {
         Some((part, position)) => {
             let chapter = l.chapter_at(part, position).map_or(1, |c| c + 1);
             let mut s = format!("Chapter {chapter} of {}", l.chapters.len());
@@ -176,6 +191,9 @@ pub(crate) fn status(m: &AppModel, tracks: &[Track], book: &Book) -> String {
         .join(" · "),
     }
 }
+
+/// What a finished book's line says.
+const FINISHED: &str = "Finished";
 
 /// The prefix of a series' row key and of its page's filter.
 pub(crate) const SERIES: &str = "series:";
@@ -278,25 +296,40 @@ pub(crate) fn page_rows(ui: &Ui, m: &AppModel, tracks: &[Track]) -> Vec<Item> {
     let Some(book) = ui.book(tracks, &m.navigation.filter) else {
         return vec![];
     };
-    let started = place(m, tracks, &book).is_some();
+    let mut rows = buttons(
+        place(m, tracks, &book).is_some(),
+        finished(m, tracks, &book),
+    );
+    let l = listening(m, tracks, &book);
+    rows.extend((0..l.chapters.len()).filter_map(|n| chapter_row(&l, n)));
+    rows
+}
+
+/// The buttons above a book's chapters: Continue (or Play), and Start Over
+/// once it is begun or finished.
+fn buttons(started: bool, finished: bool) -> Vec<Item> {
     let mut rows = vec![if started {
         Item::new("Continue", "book_resume")
     } else {
         Item::new("Play", "book_resume")
     }];
-    if started || finished(m, tracks, &book) {
+    if started || finished {
         rows.push(Item::new("Start Over", "book_restart"));
     }
-    let l = listening(m, tracks, &book);
-    rows.extend(l.chapters.iter().enumerate().map(|(n, c)| {
-        let (_, ms) = l.chapter_span(n).unwrap_or((0, 0));
-        Item::new(c.title.clone(), format!("chapter:{n}")).with_secondary(if ms > 0 {
+    rows
+}
+
+/// Chapter `n` of a book's page: its title and length.
+fn chapter_row(l: &Listening, n: usize) -> Option<Item> {
+    let chapter = l.chapters.get(n)?;
+    let (_, ms) = l.chapter_span(n).unwrap_or((0, 0));
+    Some(
+        Item::new(chapter.title.clone(), format!("chapter:{n}")).with_secondary(if ms > 0 {
             components::time(ms)
         } else {
             String::new()
-        })
-    }));
-    rows
+        }),
+    )
 }
 
 /// The book page, drawn like an album page: cover, title, author, where
@@ -321,22 +354,25 @@ pub(crate) fn book_page(
         );
         return;
     };
-    let rows = page_rows(ui, m, tracks);
-    let pills = rows
-        .iter()
-        .take_while(|r| r.key.starts_with("book_"))
-        .count();
-    let count = rows.len();
+    // Where the listener is, worked out once for the frame; rows are made
+    // only for the chapters in view (a book may have hundreds).
+    let at = place(m, tracks, &book);
+    let is_finished = finished(m, tracks, &book);
+    let l = listening(m, tracks, &book);
+    let buttons = buttons(at.is_some(), is_finished);
+    let pills = buttons.len();
+    let count = pills + l.chapters.len();
     let focus = m.navigation.focus.min(count.saturating_sub(1));
     // The header stays; only the chapters under it scroll (8.37).
     let first = components::header_list_first(focus, pills, count, m.navigation.scroll);
-    let l = listening(m, tracks, &book);
-    let current = place(m, tracks, &book).and_then(|(part, pos)| l.chapter_at(part, pos));
+    let current = at.and_then(|(part, pos)| l.chapter_at(part, pos));
     let range = components::header_list_rows(ui, first, pills, count);
     let rows_at = c.draw.len();
-    for (n, row) in rows.iter().skip(range.start).take(range.len()).enumerate() {
-        let index = range.start + n;
+    for index in range {
         let chapter = index - pills;
+        let Some(row) = chapter_row(&l, chapter) else {
+            break;
+        };
         let y = components::header_list_y(index, pills, first);
         let selected = interactive && index == focus;
         if selected {
@@ -374,8 +410,8 @@ pub(crate) fn book_page(
         c.text_mid(144., 72., 316., &book.title, Face::S25, color::TEXT);
         c.text_mid(144., 98., 310., &book.author, Face::R15, color::TEXT);
         // The author stands above: a new book's line is its length alone.
-        let mut line = match place(m, tracks, &book) {
-            None if !finished(m, tracks, &book) => {
+        let mut line = match at {
+            None if !is_finished => {
                 let parts = components::count(l.chapters.len(), "chapter", "chapters");
                 if book.duration_ms > 0 {
                     format!("{} · {parts}", length(book.duration_ms))
@@ -383,16 +419,17 @@ pub(crate) fn book_page(
                     parts
                 }
             }
-            _ => status(m, tracks, &book),
+            _ if is_finished => FINISHED.into(),
+            _ => place_line(&book, &l, at),
         };
-        if let Some((done, total)) = place(m, tracks, &book)
+        if let Some((done, total)) = at
             .and_then(|(part, pos)| l.progress(part, pos))
             .filter(|(d, t)| *t > *d)
         {
             line += &format!(" · {} left", length(total - done));
         }
         c.text_mid(144., 119., 310., &line, Face::R11, color::MUTED);
-        let labels: Vec<(&str, bool)> = rows[..pills]
+        let labels: Vec<(&str, bool)> = buttons
             .iter()
             .enumerate()
             .map(|(i, r)| (r.label.as_str(), focus == i))

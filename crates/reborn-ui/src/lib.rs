@@ -105,6 +105,12 @@ type DetailCache = Option<((usize, usize), String, String)>;
 type GroupCount = Option<((usize, usize), String, usize)>;
 /// Songs and milliseconds per (album artist, album), for a library.
 type AlbumTotals = Option<((usize, usize), HashMap<(String, String), AlbumTotal>)>;
+/// The same of one genre's songs only, for a library and genre.
+type GenreTotals = Option<(
+    (usize, usize),
+    String,
+    HashMap<(String, String), AlbumTotal>,
+)>;
 /// Library stamp and whether it holds a book and a film on the player.
 type ShelvesCache = Option<((usize, usize), (bool, bool))>;
 /// Library stamp, the playing song's id and source, and its library index.
@@ -526,6 +532,9 @@ pub struct Ui {
     /// The Audiobooks rows, kept until the library, a book's progress, the chapters known or the
     /// playing book change (Y2Reborn #27: rebuilt several times a frame they made the list crawl).
     book_rows: RefCell<Option<views_books::BookRowsCache>>,
+    /// The Videos rows, kept until the library changes: made with every film sorted by title,
+    /// they were made again for each count and window, three times a frame while the list glides.
+    video_rows: RefCell<Option<views_videos::RowsCache>>,
     /// The playing film's picture and subtitle, as the app last uploaded them.
     pub video: views_videos::VideoPicture,
     /// A film's title and time line show until this moment (a button was pressed).
@@ -635,6 +644,10 @@ pub struct Ui {
     /// Every album's songs and length, counted once per library: Cover
     /// Flow names each album it passes (Beta 8.39).
     album_totals: RefCell<AlbumTotals>,
+    /// A genre's albums counted with that genre's songs (#50), once per library and genre: its
+    /// grid and Cover Flow name each album they pass, and counted alone each took a pass over the
+    /// library.
+    genre_totals: RefCell<GenreTotals>,
     /// The song count a group's menu shows, for (library, group).
     group_count: RefCell<GroupCount>,
     /// How far `prewarm` got, for which library.

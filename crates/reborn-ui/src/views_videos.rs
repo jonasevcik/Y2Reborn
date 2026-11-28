@@ -52,8 +52,32 @@ pub(crate) fn unplayable_message(t: &Track) -> String {
     )
 }
 
+/// The Videos rows with the library they were made from (its address and length).
+pub(crate) type RowsCache = ((usize, usize), Vec<Item>);
+
+impl Ui {
+    /// The Videos rows, made once per library.
+    pub(crate) fn with_video_rows<R>(
+        &self,
+        tracks: &[Track],
+        read: impl FnOnce(&[Item]) -> R,
+    ) -> R {
+        let library = crate::library_stamp(tracks);
+        if self
+            .video_rows
+            .borrow()
+            .as_ref()
+            .is_none_or(|(seen, _)| *seen != library)
+        {
+            *self.video_rows.borrow_mut() = Some((library, rows(tracks)));
+        }
+        let cache = self.video_rows.borrow();
+        read(cache.as_ref().map_or(&[][..], |(_, rows)| rows.as_slice()))
+    }
+}
+
 /// Every film of the library by title, each with its length; Select plays it.
-pub(crate) fn rows(tracks: &[Track]) -> Vec<Item> {
+fn rows(tracks: &[Track]) -> Vec<Item> {
     films(tracks)
         .into_iter()
         .map(|i| {

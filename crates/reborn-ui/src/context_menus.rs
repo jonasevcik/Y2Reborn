@@ -316,14 +316,12 @@ impl Ui {
             }
             "save_queue" => {
                 Self::close_modal(m);
+                // Each song is looked up in Up Next's index: a pass over 120 000 songs for each
+                // of 5 000 queued ones takes seconds.
                 self.playlists.pending = m
                     .queue
                     .iter()
-                    .filter_map(|q| {
-                        tracks
-                            .iter()
-                            .position(|t| t.id == q.id && t.source_id == q.source_id)
-                    })
+                    .filter_map(|q| self.library_index(tracks, q))
                     .collect();
                 if self.playlists.pending.is_empty() {
                     self.flash("The queue has no songs to save");

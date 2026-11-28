@@ -44,6 +44,12 @@ pub(crate) fn list_songs(m: &AppModel, tracks: &[Track], filter: &str) -> Option
     })
 }
 
+/// Whether the list `filter` names is made from the play history (`list_songs`): only those
+/// change when a song is counted.
+pub(crate) fn follows_plays(filter: &str) -> bool {
+    matches!(filter, RECENTLY_PLAYED | MOST_PLAYED)
+}
+
 /// What a group of songs can be played as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Choice {
