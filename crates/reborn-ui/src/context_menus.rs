@@ -329,8 +329,7 @@ impl Ui {
                 if self.playlists.pending.is_empty() {
                     self.flash("The queue has no songs to save");
                 } else {
-                    self.keyboard =
-                        Some(keyboard::Keyboard::new(keyboard::Purpose::PlaylistNew, ""));
+                    self.name_new_playlist(tracks);
                 }
                 return Effect::None;
             }
@@ -516,7 +515,7 @@ impl Ui {
                             return Effect::None;
                         }
                         self.keyboard = None;
-                        self.playlist_named(&purpose, text)
+                        self.playlist_named(tracks, &purpose, text)
                     }
                     Purpose::WifiName => {
                         // A name may start or end with a space: keep it as typed.

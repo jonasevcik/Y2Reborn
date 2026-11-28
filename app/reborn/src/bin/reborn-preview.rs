@@ -1841,7 +1841,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         move |ui, m| {
             playlists_setup(ui, m);
-            ui.playlists.moving = Some((0, 2));
+            ui.playlists.moving = Some((m.navigation.filter.clone().into(), 0, 2));
             m.navigation.focus = 4;
         }
     );

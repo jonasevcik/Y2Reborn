@@ -23,12 +23,17 @@ pub struct PlaylistsView {
     pub loaded: bool,
     pub loading: bool,
     pub error: Option<String>,
-    /// Songs waiting for the playlist picker or a new playlist's name.
+    /// Songs waiting for the playlist picker, as places in the library.
     pub pending: Vec<usize>,
+    /// Songs waiting for a new playlist's name: each one's place in the library, its source and
+    /// its path. Typing a name takes long enough for a scan to end and publish the library
+    /// again, where a file added or removed moves every place after it; the songs are then
+    /// found again by source and path.
+    naming: Vec<(usize, String, PathBuf)>,
     /// Playlists added to lately, the latest first (the picker's order).
     pub recent: Vec<PathBuf>,
-    /// A song being moved: its place in the file and where it is now.
-    pub moving: Option<(usize, usize)>,
+    /// A song being moved: its playlist, its place in the file and where it is now.
+    pub moving: Option<(PathBuf, usize, usize)>,
     /// A playlist being moved in the Playlists list (#33).
     pub(crate) carried: Option<crate::reorder::Carry>,
     /// The playlist a confirmation or a rename is about.
@@ -55,14 +60,15 @@ pub(crate) struct Facts {
 /// A playlist's file stamp, entry count and the library it was matched in.
 pub(crate) type FactsKey = ((u64, i64), usize, (usize, usize));
 
-/// What the rows of a Playlist screen depend on.
+/// What the rows of a Playlist screen depend on. A song being moved counts by its place in the
+/// file only: where it is now is carried through the rows built (`carry_moving`).
 pub(crate) type RowsKey = (
     Screen,
     String,
     u64,
     usize,
     usize,
-    Option<(usize, usize)>,
+    Option<usize>,
     PlaylistSort,
     // The Playlists list's order and a playlist being moved in it (#33).
     Vec<String>,
@@ -358,20 +364,21 @@ impl Ui {
 
     /// Rows of the Playlists section and of one playlist, built once per
     /// change and lent out: a long playlist is neither rebuilt nor copied
-    /// for every frame.
+    /// for every frame, nor for every detent of a song being moved.
     pub(crate) fn with_playlist_rows<R>(
         &self,
         m: &AppModel,
         tracks: &[Track],
         read: impl FnOnce(&[Item]) -> R,
     ) -> R {
+        let moving = self.moving_shown(m);
         let key: RowsKey = (
             m.screen,
             m.navigation.filter.clone(),
             self.playlists.generation,
             tracks.as_ptr() as usize,
             tracks.len(),
-            self.playlists.moving,
+            moving.map(|(_, from, _)| from),
             m.settings.playlist_sort(Path::new(&m.navigation.filter)),
             m.settings.playlist_order.clone(),
             self.playlists.carried,
@@ -380,6 +387,10 @@ impl Ui {
         if !fresh {
             let rows = self.build_playlist_rows(m, tracks);
             *self.playlist_rows_cache.borrow_mut() = Some((key, rows));
+        } else if let Some((p, from, to)) = moving {
+            if let Some((_, rows)) = self.playlist_rows_cache.borrow_mut().as_mut() {
+                carry_moving(rows, p.entries.len(), from, to);
+            }
         }
         let cache = self.playlist_rows_cache.borrow();
         read(cache.as_ref().map_or(&[][..], |(_, rows)| rows.as_slice()))
@@ -423,7 +434,8 @@ impl Ui {
                 }
                 // While a song is being moved it is drawn at its new place.
                 let mut order = self.shown_order(m, tracks, p);
-                if let Some((from, to)) = self.playlists.moving {
+                let moving = self.moving_shown(m).map(|(_, from, to)| (from, to));
+                if let Some((from, to)) = moving {
                     if from < order.len() {
                         let entry = order.remove(from);
                         order.insert(to.min(order.len()), entry);
@@ -445,7 +457,7 @@ impl Ui {
                         None => Item::new(missing_label(entry), format!("pl_entry:{i}"))
                             .with_secondary("Not on the player"),
                     };
-                    if self.playlists.moving.is_some_and(|(from, _)| from == i) {
+                    if moving.is_some_and(|(from, _)| from == i) {
                         item.secondary = "Moving".into();
                     }
                     rows.push(item);
@@ -464,7 +476,7 @@ impl Ui {
     ) -> Effect {
         if key == "pl_new" {
             self.playlists.pending.clear();
-            self.open_name_keyboard(None);
+            self.name_new_playlist(tracks);
             return Effect::None;
         }
         if let Some(i) = key
@@ -654,7 +666,7 @@ impl Ui {
                 Effect::None
             }
             ("ple_move", _) => {
-                self.playlists.moving = Some((index, index));
+                self.playlists.moving = Some((p.path, index, index));
                 Effect::None
             }
             ("ple_remove", _) => Effect::Playlist(Box::new(PlaylistRequest::Edit {
@@ -673,6 +685,18 @@ impl Ui {
         })
     }
 
+    /// The song being moved, while its playlist's page is on screen and the file still has it:
+    /// the playlist, the song's place in the file and where it is now.
+    pub(crate) fn moving_shown(&self, m: &AppModel) -> Option<(&Playlist, usize, usize)> {
+        let (path, from, to) = self.playlists.moving.as_ref()?;
+        if m.screen != Screen::Playlist || Path::new(&m.navigation.filter) != path {
+            return None;
+        }
+        let p = self.playlists.get(path)?;
+        p.entries.get(*from)?;
+        Some((p, *from, *to))
+    }
+
     /// While a song is being moved, the wheel (or Up/Down) carries it, Select
     /// drops it and Back puts it back.
     pub(crate) fn moving_action(
@@ -681,11 +705,22 @@ impl Ui {
         tracks: &[Track],
         action: Action,
     ) -> Option<Effect> {
-        let (from, to) = self.playlists.moving?;
-        let p = self.playlists.get(Path::new(&m.navigation.filter))?.clone();
+        self.playlists.moving.as_ref()?;
+        // The move ends with its page, as Up Next's does. Now Playing (hold Play/Pause) and a
+        // button's command leave the page without passing here, so the next action anywhere
+        // else ends it; a move kept took its place in the next playlist opened, moving a song
+        // of that file or panicking on a shorter one. A file read again without the song ends
+        // the move too.
+        let Some((p, from, to)) = self.moving_shown(m) else {
+            self.playlists.moving = None;
+            return None;
+        };
+        if m.navigation.modal.is_some() {
+            return None;
+        }
         let last = p.entries.len().saturating_sub(1);
         // Play and Shuffle come first when anything can play.
-        let lead = if self.facts(tracks, &p).playable.is_empty() {
+        let lead = if self.facts(tracks, p).playable.is_empty() {
             0
         } else {
             2
@@ -703,24 +738,28 @@ impl Ui {
                     Action::NavigateDown => 1,
                     _ => -1,
                 };
-                self.playlists.moving = Some((from, step(to, delta)));
+                if let Some((_, _, now)) = self.playlists.moving.as_mut() {
+                    *now = step(to, delta);
+                }
                 Effect::None
             }
             Action::Select => {
+                let effect = match p.entries.get(from) {
+                    Some(entry) if to != from => {
+                        Effect::Playlist(Box::new(PlaylistRequest::Edit {
+                            path: p.path.clone(),
+                            edit: PlaylistEdit::Move {
+                                from,
+                                to,
+                                location: entry.location.clone(),
+                            },
+                            create: false,
+                        }))
+                    }
+                    _ => Effect::None,
+                };
                 self.playlists.moving = None;
-                if to == from {
-                    Effect::None
-                } else {
-                    Effect::Playlist(Box::new(PlaylistRequest::Edit {
-                        path: p.path.clone(),
-                        edit: PlaylistEdit::Move {
-                            from,
-                            to,
-                            location: p.entries[from].location.clone(),
-                        },
-                        create: false,
-                    }))
-                }
+                effect
             }
             Action::Back | Action::Home => {
                 self.playlists.moving = None;
@@ -729,7 +768,11 @@ impl Ui {
             _ => return Some(Effect::None),
         };
         // The moving song stays in focus.
-        let (_, now) = self.playlists.moving.unwrap_or((from, to));
+        let now = self
+            .playlists
+            .moving
+            .as_ref()
+            .map_or(to, |(_, _, now)| *now);
         m.navigation.focus = lead + now;
         Some(effect)
     }
@@ -797,7 +840,7 @@ impl Ui {
         let songs = std::mem::take(&mut self.playlists.pending);
         if key == "pick_new" {
             self.playlists.pending = songs;
-            self.open_name_keyboard(None);
+            self.name_new_playlist(tracks);
             return Effect::None;
         }
         let path = if key == "pick_favorites" {
@@ -841,6 +884,20 @@ impl Ui {
         }))
     }
 
+    /// The keyboard for a new playlist's name, for the songs in `pending` (none: an empty
+    /// playlist).
+    pub(crate) fn name_new_playlist(&mut self, tracks: &[Track]) {
+        let songs = std::mem::take(&mut self.playlists.pending);
+        self.playlists.naming = (songs.into_iter())
+            .filter_map(|i| {
+                tracks
+                    .get(i)
+                    .map(|t| (i, t.source_id.clone(), t.path.clone()))
+            })
+            .collect();
+        self.open_name_keyboard(None);
+    }
+
     /// The keyboard for a new playlist's name, or to rename one.
     fn open_name_keyboard(&mut self, rename: Option<&Playlist>) {
         let purpose = match rename {
@@ -855,10 +912,16 @@ impl Ui {
     }
 
     /// The name keyboard is done.
-    pub(crate) fn playlist_named(&mut self, purpose: &keyboard::Purpose, name: String) -> Effect {
+    pub(crate) fn playlist_named(
+        &mut self,
+        tracks: &[Track],
+        purpose: &keyboard::Purpose,
+        name: String,
+    ) -> Effect {
         match purpose {
             keyboard::Purpose::PlaylistNew => {
-                let tracks = std::mem::take(&mut self.playlists.pending);
+                let songs = std::mem::take(&mut self.playlists.naming);
+                let tracks = found_again(tracks, &songs);
                 Effect::Playlist(Box::new(PlaylistRequest::Create { name, tracks }))
             }
             _ => match self.playlists.target.take() {
@@ -866,6 +929,48 @@ impl Ui {
                 None => Effect::None,
             },
         }
+    }
+}
+
+/// The places of these songs in the library as it is now: where each place still holds its song,
+/// those places, else each song found again by source and path (a song gone is left out).
+fn found_again(tracks: &[Track], songs: &[(usize, String, PathBuf)]) -> Vec<usize> {
+    let held = |(i, source, path): &(usize, String, PathBuf)| {
+        tracks
+            .get(*i)
+            .is_some_and(|t| t.source_id == *source && t.path == *path)
+    };
+    if songs.iter().all(held) {
+        return songs.iter().map(|(i, ..)| *i).collect();
+    }
+    let places: std::collections::HashMap<(&str, &Path), usize> = (tracks.iter().enumerate())
+        .map(|(i, t)| ((t.source_id.as_str(), t.path.as_path()), i))
+        .collect();
+    (songs.iter())
+        .filter_map(|(_, source, path)| places.get(&(source.as_str(), path.as_path())).copied())
+        .collect()
+}
+
+/// Puts the song being moved (`pl_entry:{from}`) at place `to` among a playlist's `count` songs,
+/// in rows built for the same move, by turning over the rows between: a detent then costs a few
+/// rows, where every row of a long playlist was built again. The rows are a playlist's songs
+/// after its Play and Shuffle; `to` is clamped as `build_playlist_rows` does.
+fn carry_moving(rows: &mut [Item], count: usize, from: usize, to: usize) {
+    let lead = rows.len().saturating_sub(count);
+    let at = lead + to.min(count.saturating_sub(1));
+    let key = format!("pl_entry:{from}");
+    if rows.get(at).is_none_or(|r| r.key == key) {
+        return;
+    }
+    let Some(now) = rows.iter().position(|r| r.key == key) else {
+        return;
+    };
+    if now < at {
+        if let Some(between) = rows.get_mut(now..=at) {
+            between.rotate_left(1);
+        }
+    } else if let Some(between) = rows.get_mut(at..=now) {
+        between.rotate_right(1);
     }
 }
 

@@ -5309,7 +5309,7 @@ fn songs_are_removed_and_moved_in_their_playlist_by_place() {
         .collect();
     m.navigation.modal_focus = options.iter().position(|k| k == "ple_move").unwrap();
     ui.model_action(&mut m, Action::Select);
-    assert_eq!(ui.playlists.moving, Some((0, 0)));
+    assert_eq!(ui.playlists.moving, Some((path.clone(), 0, 0)));
     ui.model_action(&mut m, Action::WheelClockwise(1));
     ui.model_action(&mut m, Action::WheelClockwise(1));
     let keys: Vec<_> = ui
@@ -5325,7 +5325,7 @@ fn songs_are_removed_and_moved_in_their_playlist_by_place() {
     assert_eq!(
         ui.model_action(&mut m, Action::Select),
         Effect::Playlist(Box::new(PlaylistRequest::Edit {
-            path,
+            path: path.clone(),
             edit: PlaylistEdit::Move {
                 from: 0,
                 to: 2,
@@ -5336,9 +5336,199 @@ fn songs_are_removed_and_moved_in_their_playlist_by_place() {
     );
     assert_eq!(ui.playlists.moving, None);
     // Back while moving puts it back without a change.
-    ui.playlists.moving = Some((1, 3));
+    ui.playlists.moving = Some((path, 1, 3));
     assert_eq!(ui.model_action(&mut m, Action::Back), Effect::None);
     assert_eq!((ui.playlists.moving, m.screen), (None, Screen::Playlist));
+}
+
+/// Hold Select on the song in row `focus` of the playlist on screen and choose Move.
+fn start_song_move(ui: &mut Ui, m: &mut AppModel, focus: usize) {
+    m.navigation.focus = focus;
+    ui.model_action(m, Action::ContextMenu);
+    let options: Vec<_> = (ui.modal_rows_public(m, &m.library.tracks).into_iter())
+        .map(|r| r.key)
+        .collect();
+    m.navigation.modal_focus = options.iter().position(|k| k == "ple_move").unwrap();
+    ui.model_action(m, Action::Select);
+    assert!(ui.playlists.moving.is_some());
+}
+
+/// A song move belongs to its playlist's page. Leaving it with a held Play/Pause and Home from
+/// Now Playing ended nothing, and on a shorter playlist the wheel and Select then took the
+/// song's place in the old one and panicked.
+#[test]
+fn a_song_move_ends_when_now_playing_and_home_leave_its_playlist() {
+    let (mut ui, mut m) = playlists_app();
+    select_key(&mut ui, &mut m, "playlist:2");
+    assert_eq!(m.navigation.filter, "/data/music/Playlists/Road Trip.m3u8");
+    // Road Trip's last song starts moving.
+    start_song_move(&mut ui, &mut m, 5);
+    ui.model_action(&mut m, Action::ShowNowPlaying);
+    assert_eq!(m.screen, Screen::NowPlaying);
+    ui.model_action(&mut m, Action::Home);
+    select_key(&mut ui, &mut m, "playlists");
+    // Favorites holds one song.
+    select_key(&mut ui, &mut m, "playlist:0");
+    assert_eq!(m.navigation.filter, "/data/music/Playlists/Favorites.m3u8");
+    ui.model_action(&mut m, Action::WheelClockwise(1));
+    let effect = ui.model_action(&mut m, Action::Select);
+    assert!(!matches!(effect, Effect::Playlist(_)), "{effect:?}");
+    assert!(ui.playlists.moving.is_none());
+}
+
+/// A button's command leaves the page too, and on a longer playlist the move kept rewrote that
+/// playlist's file with one of its own songs moved.
+#[test]
+fn a_song_move_ends_when_a_button_leaves_its_playlist() {
+    let (mut ui, mut m) = playlists_app();
+    let mix = "/data/music/Playlists/Mix.m3u8";
+    let songs = [
+        "../album0/song0.flac",
+        "../album0/song1.flac",
+        "../album0/song2.flac",
+        "../album1/song3.flac",
+        "../album1/song4.flac",
+        "../album1/song5.flac",
+    ];
+    ui.playlists.replace(playlist(mix, &songs));
+    let open = |ui: &mut Ui, m: &mut AppModel, path: &str| {
+        let i = (ui.playlists.lists.iter())
+            .position(|p| p.path == std::path::Path::new(path))
+            .unwrap();
+        select_key(ui, m, &format!("playlist:{i}"));
+        assert_eq!(
+            (m.screen, m.navigation.filter.as_str()),
+            (Screen::Playlist, path)
+        );
+    };
+    open(&mut ui, &mut m, "/data/music/Playlists/Road Trip.m3u8");
+    start_song_move(&mut ui, &mut m, 5);
+    let command = reborn_core::buttons::Command::OpenPlaylists;
+    ui.model_action(&mut m, Action::Command(command));
+    assert_eq!(m.screen, Screen::Playlists);
+    open(&mut ui, &mut m, mix);
+    ui.model_action(&mut m, Action::WheelClockwise(1));
+    let tracks = m.library.tracks.clone();
+    let moving = ui
+        .rows(&m, &tracks)
+        .into_iter()
+        .find(|r| r.secondary == "Moving");
+    let effect = ui.model_action(&mut m, Action::Select);
+    assert!(!matches!(effect, Effect::Playlist(_)), "{effect:?}");
+    assert_eq!(moving, None, "no song of Mix is moving");
+}
+
+/// The file read again without the moving song (copied over from a computer) ends the move;
+/// Select took the song's old place and panicked.
+#[test]
+fn a_song_move_ends_when_its_file_is_read_again_without_the_song() {
+    let (mut ui, mut m) = playlists_app();
+    let road = "/data/music/Playlists/Road Trip.m3u8";
+    select_key(&mut ui, &mut m, "playlist:2");
+    start_song_move(&mut ui, &mut m, 5);
+    ui.playlists.replace(playlist(
+        road,
+        &["../album0/song1.flac", "../album0/song2.flac"],
+    ));
+    ui.model_action(&mut m, Action::WheelCounterClockwise(1));
+    let effect = ui.model_action(&mut m, Action::Select);
+    assert!(!matches!(effect, Effect::Playlist(_)), "{effect:?}");
+    assert!(ui.playlists.moving.is_none());
+}
+
+/// Each detent of a song move carries the song through the rows already built (every row of
+/// the playlist was built again for each detent), and the rows are the ones a fresh build gives.
+#[test]
+fn a_moving_song_is_carried_through_the_rows_already_built() {
+    let (mut ui, mut m) = playlists_app();
+    select_key(&mut ui, &mut m, "playlist:2");
+    // The rows lent out: the same buffer while nothing builds them again. The actions lend
+    // them for the same library, `m.library.tracks`.
+    let lent =
+        |ui: &Ui, m: &AppModel| ui.with_playlist_rows(m, &m.library.tracks, |rows| rows.as_ptr());
+    start_song_move(&mut ui, &mut m, 2);
+    let mut built = lent(&ui, &m);
+    for action in [
+        Action::WheelClockwise(1),
+        Action::WheelClockwise(1),
+        Action::WheelClockwise(5),
+        Action::WheelCounterClockwise(1),
+        Action::WheelCounterClockwise(9),
+        Action::WheelClockwise(2),
+    ] {
+        ui.model_action(&mut m, action);
+        assert_eq!(
+            lent(&ui, &m),
+            built,
+            "{action:?}: the rows were built again"
+        );
+        let carried = ui.rows(&m, &m.library.tracks);
+        ui.playlist_rows_cache.replace(None);
+        assert_eq!(ui.rows(&m, &m.library.tracks), carried, "{action:?}");
+        built = lent(&ui, &m);
+    }
+    let keys: Vec<_> = (ui.rows(&m, &m.library.tracks).into_iter())
+        .map(|r| r.key)
+        .collect();
+    assert_eq!(
+        &keys[2..],
+        ["pl_entry:1", "pl_entry:2", "pl_entry:0", "pl_entry:3"]
+    );
+}
+
+/// A scan that ends while a new playlist's name is typed publishes the library again, and a
+/// file added before the chosen songs moves their places by one. The playlist was made of the
+/// songs now at the old places.
+#[test]
+fn a_new_playlist_keeps_its_songs_when_the_library_changes_while_naming_it() {
+    use reborn_core::PlaylistRequest;
+    let scanned = || {
+        let mut tracks = library();
+        let new = Track {
+            id: 100,
+            title: "New Song".into(),
+            path: "/data/music/album0/new.flac".into(),
+            filename: "new.flac".into(),
+            ..tracks[0].clone()
+        };
+        tracks.insert(0, new);
+        tracks
+    };
+    let name = |ui: &mut Ui, m: &mut AppModel| {
+        assert!(ui.keyboard.is_some());
+        m.library.tracks = scanned();
+        ui.keyboard.as_mut().unwrap().text = "Late Night".into();
+        ui.model_action(m, Action::ContextMenu)
+    };
+    let create = |tracks: Vec<usize>| {
+        Effect::Playlist(Box::new(PlaylistRequest::Create {
+            name: "Late Night".into(),
+            tracks,
+        }))
+    };
+    // New Playlist… in the picker, for songs 5 and 7.
+    let (mut ui, mut m) = playlists_app();
+    m.screen = Screen::Tracks;
+    m.navigation.filter.clear();
+    ui.open_picker(&mut m, vec![5, 7]);
+    m.navigation.modal_focus = 0;
+    ui.model_action(&mut m, Action::Select);
+    let picked = name(&mut ui, &mut m);
+    // Save Up Next as Playlist…: the queue is songs 0 to 8.
+    let (mut ui, mut m) = playlists_app();
+    m.screen = Screen::Queue;
+    m.navigation.focus = 0;
+    ui.model_action(&mut m, Action::ContextMenu);
+    let options: Vec<_> = (ui.modal_rows_public(&m, &m.library.tracks).into_iter())
+        .map(|r| r.key)
+        .collect();
+    m.navigation.modal_focus = options.iter().position(|k| k == "save_queue").unwrap();
+    ui.model_action(&mut m, Action::Select);
+    let saved = name(&mut ui, &mut m);
+    assert_eq!(
+        (picked, saved),
+        (create(vec![6, 8]), create((1..10).collect()))
+    );
 }
 
 #[test]

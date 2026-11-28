@@ -176,7 +176,7 @@ fn page(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interactive: bo
             .count()
     });
     let focus = m.navigation.focus.min(count.saturating_sub(1));
-    let moving = ui.playlists.moving.is_some();
+    let moving = ui.moving_shown(m).map(|(_, from, _)| from);
     // The header (picture, name, Play and Shuffle) stays; only the songs
     // under it scroll, as on an album page (8.37).
     let first = components::header_list_first(focus, lead, count, m.navigation.scroll);
@@ -190,12 +190,12 @@ fn page(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interactive: bo
         let i = range.start + n;
         let y = components::header_list_y(i, lead, first);
         let selected = interactive && i == focus;
-        let lifted = moving
+        let lifted = moving.is_some()
             && row
                 .key
                 .strip_prefix("pl_entry:")
                 .and_then(|i| i.parse::<usize>().ok())
-                == ui.playlists.moving.map(|(from, _)| from);
+                == moving;
         let song = row.art.and_then(|i| tracks.get(i).map(|t| (i, t)));
         let available = song.is_some_and(|(_, t)| t.online);
         if lifted {
@@ -289,7 +289,7 @@ fn page(c: &mut Canvas, ui: &Ui, m: &AppModel, tracks: &[Track], interactive: bo
                 144.,
                 134.,
                 &[("Play", focus == 0), ("Shuffle", focus == 1)],
-                interactive && !moving,
+                interactive && moving.is_none(),
             );
         }
         if p.entries.is_empty() {

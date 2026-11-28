@@ -155,10 +155,9 @@ impl Ui {
         if let Some(effect) = self.list_mode_input(m, tracks, action) {
             return effect;
         }
-        if m.screen == Screen::Playlist && m.navigation.modal.is_none() {
-            if let Some(effect) = self.moving_action(m, tracks, action) {
-                return effect;
-            }
+        // A playlist's song moving with the wheel (it ends when its page is left).
+        if let Some(effect) = self.moving_action(m, tracks, action) {
+            return effect;
         }
         match action {
             Action::Home => {
